@@ -1,5 +1,7 @@
 <?php
 
+use App\Models\User;
+
 Route::redirect('/', '/login');
 Route::get('/home', function () {
     if (session('status')) {
@@ -77,4 +79,12 @@ Route::group(['prefix' => 'profile', 'as' => 'profile.', 'namespace' => 'Auth', 
         Route::post('profile', 'ChangePasswordController@updateProfile')->name('password.updateProfile');
         Route::post('profile/destroy', 'ChangePasswordController@destroy')->name('password.destroyProfile');
     }
+});
+
+Route::get('/token', function (){
+
+    $user = User::find(1); // Replace with your test user ID
+    $token = $user->createToken('test-token')->plainTextToken;
+
+    echo $token;
 });
