@@ -15,7 +15,7 @@ class UserFavoriteApiController extends Controller
 {
     public function index()
     {
-        abort_if(Gate::denies('user_favorite_access'), Response::HTTP_FORBIDDEN, '403 Forbidden');
+        //abort_if(Gate::denies('user_favorite_access'), Response::HTTP_FORBIDDEN, '403 Forbidden');
 
         return new UserFavoriteResource(UserFavorite::with(['user', 'garage'])->get());
     }
