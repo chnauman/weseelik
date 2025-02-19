@@ -89,6 +89,9 @@
                             {{ trans('cruds.garage.fields.services') }}
                         </th>
                         <th>
+                            {{ trans('cruds.garage.fields.category') }}
+                        </th>
+                        <th>
                             {{ trans('cruds.garage.fields.rating') }}
                         </th>
                         <th>
@@ -185,6 +188,11 @@
                             </td>
                             <td>
                                 @foreach($garage->services as $key => $item)
+                                    <span class="badge badge-info">{{ $item->title }}</span>
+                                @endforeach
+                            </td>
+                            <td>
+                                @foreach($garage->categories as $key => $item)
                                     <span class="badge badge-info">{{ $item->title }}</span>
                                 @endforeach
                             </td>

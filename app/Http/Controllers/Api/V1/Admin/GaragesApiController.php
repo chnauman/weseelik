@@ -18,9 +18,9 @@ class GaragesApiController extends Controller
 
     public function index()
     {
-        //abort_if(Gate::denies('garage_access'), Response::HTTP_FORBIDDEN, '403 Forbidden');
+        abort_if(Gate::denies('garage_access'), Response::HTTP_FORBIDDEN, '403 Forbidden');
 
-        return new GarageResource(Garage::with(['user', 'country', 'tags', 'languages', 'specializations', 'services'])->get());
+        return new GarageResource(Garage::with(['user', 'country', 'tags', 'languages', 'specializations', 'services', 'categories'])->get());
     }
 
     public function store(StoreGarageRequest $request)
@@ -30,6 +30,7 @@ class GaragesApiController extends Controller
         $garage->languages()->sync($request->input('languages', []));
         $garage->specializations()->sync($request->input('specializations', []));
         $garage->services()->sync($request->input('services', []));
+        $garage->categories()->sync($request->input('categories', []));
         if ($request->input('logo', false)) {
             $garage->addMedia(storage_path('tmp/uploads/' . basename($request->input('logo'))))->toMediaCollection('logo');
         }
@@ -51,7 +52,7 @@ class GaragesApiController extends Controller
     {
         abort_if(Gate::denies('garage_show'), Response::HTTP_FORBIDDEN, '403 Forbidden');
 
-        return new GarageResource($garage->load(['user', 'country', 'tags', 'languages', 'specializations', 'services']));
+        return new GarageResource($garage->load(['user', 'country', 'tags', 'languages', 'specializations', 'services', 'categories']));
     }
 
     public function update(UpdateGarageRequest $request, Garage $garage)
@@ -61,6 +62,7 @@ class GaragesApiController extends Controller
         $garage->languages()->sync($request->input('languages', []));
         $garage->specializations()->sync($request->input('specializations', []));
         $garage->services()->sync($request->input('services', []));
+        $garage->categories()->sync($request->input('categories', []));
         if ($request->input('logo', false)) {
             if (! $garage->logo || $request->input('logo') !== $garage->logo->file_name) {
                 if ($garage->logo) {

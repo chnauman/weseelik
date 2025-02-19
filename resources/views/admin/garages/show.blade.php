@@ -213,6 +213,16 @@
                     </tr>
                     <tr>
                         <th>
+                            {{ trans('cruds.garage.fields.category') }}
+                        </th>
+                        <td>
+                            @foreach($garage->categories as $key => $category)
+                                <span class="label label-info">{{ $category->title }}</span>
+                            @endforeach
+                        </td>
+                    </tr>
+                    <tr>
+                        <th>
                             {{ trans('cruds.garage.fields.rating') }}
                         </th>
                         <td>

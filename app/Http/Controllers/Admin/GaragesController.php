@@ -7,6 +7,7 @@ use App\Http\Controllers\Traits\MediaUploadingTrait;
 use App\Http\Requests\MassDestroyGarageRequest;
 use App\Http\Requests\StoreGarageRequest;
 use App\Http\Requests\UpdateGarageRequest;
+use App\Models\Category;
 use App\Models\Country;
 use App\Models\Garage;
 use App\Models\Language;
@@ -27,7 +28,7 @@ class GaragesController extends Controller
     {
         abort_if(Gate::denies('garage_access'), Response::HTTP_FORBIDDEN, '403 Forbidden');
 
-        $garages = Garage::with(['user', 'country', 'tags', 'languages', 'specializations', 'services', 'media'])->get();
+        $garages = Garage::with(['user', 'country', 'tags', 'languages', 'specializations', 'services', 'categories', 'media'])->get();
 
         return view('admin.garages.index', compact('garages'));
     }
@@ -48,7 +49,9 @@ class GaragesController extends Controller
 
         $services = Service::pluck('title', 'id');
 
-        return view('admin.garages.create', compact('countries', 'languages', 'services', 'specializations', 'tags', 'users'));
+        $categories = Category::pluck('title', 'id');
+
+        return view('admin.garages.create', compact('categories', 'countries', 'languages', 'services', 'specializations', 'tags', 'users'));
     }
 
     public function store(StoreGarageRequest $request)
@@ -58,6 +61,7 @@ class GaragesController extends Controller
         $garage->languages()->sync($request->input('languages', []));
         $garage->specializations()->sync($request->input('specializations', []));
         $garage->services()->sync($request->input('services', []));
+        $garage->categories()->sync($request->input('categories', []));
         if ($request->input('logo', false)) {
             $garage->addMedia(storage_path('tmp/uploads/' . basename($request->input('logo'))))->toMediaCollection('logo');
         }
@@ -93,9 +97,11 @@ class GaragesController extends Controller
 
         $services = Service::pluck('title', 'id');
 
-        $garage->load('user', 'country', 'tags', 'languages', 'specializations', 'services');
+        $categories = Category::pluck('title', 'id');
 
-        return view('admin.garages.edit', compact('countries', 'garage', 'languages', 'services', 'specializations', 'tags', 'users'));
+        $garage->load('user', 'country', 'tags', 'languages', 'specializations', 'services', 'categories');
+
+        return view('admin.garages.edit', compact('categories', 'countries', 'garage', 'languages', 'services', 'specializations', 'tags', 'users'));
     }
 
     public function update(UpdateGarageRequest $request, Garage $garage)
@@ -105,6 +111,7 @@ class GaragesController extends Controller
         $garage->languages()->sync($request->input('languages', []));
         $garage->specializations()->sync($request->input('specializations', []));
         $garage->services()->sync($request->input('services', []));
+        $garage->categories()->sync($request->input('categories', []));
         if ($request->input('logo', false)) {
             if (! $garage->logo || $request->input('logo') !== $garage->logo->file_name) {
                 if ($garage->logo) {
@@ -148,7 +155,7 @@ class GaragesController extends Controller
     {
         abort_if(Gate::denies('garage_show'), Response::HTTP_FORBIDDEN, '403 Forbidden');
 
-        $garage->load('user', 'country', 'tags', 'languages', 'specializations', 'services');
+        $garage->load('user', 'country', 'tags', 'languages', 'specializations', 'services', 'categories');
 
         return view('admin.garages.show', compact('garage'));
     }

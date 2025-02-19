@@ -269,6 +269,24 @@
                 <span class="help-block">{{ trans('cruds.garage.fields.services_helper') }}</span>
             </div>
             <div class="form-group">
+                <label class="required" for="categories">{{ trans('cruds.garage.fields.category') }}</label>
+                <div style="padding-bottom: 4px">
+                    <span class="btn btn-info btn-xs select-all" style="border-radius: 0">{{ trans('global.select_all') }}</span>
+                    <span class="btn btn-info btn-xs deselect-all" style="border-radius: 0">{{ trans('global.deselect_all') }}</span>
+                </div>
+                <select class="form-control select2 {{ $errors->has('categories') ? 'is-invalid' : '' }}" name="categories[]" id="categories" multiple required>
+                    @foreach($categories as $id => $category)
+                        <option value="{{ $id }}" {{ (in_array($id, old('categories', [])) || $garage->categories->contains($id)) ? 'selected' : '' }}>{{ $category }}</option>
+                    @endforeach
+                </select>
+                @if($errors->has('categories'))
+                    <div class="invalid-feedback">
+                        {{ $errors->first('categories') }}
+                    </div>
+                @endif
+                <span class="help-block">{{ trans('cruds.garage.fields.category_helper') }}</span>
+            </div>
+            <div class="form-group">
                 <button class="btn btn-danger" type="submit">
                     {{ trans('global.save') }}
                 </button>
