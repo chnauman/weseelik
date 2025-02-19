@@ -32,4 +32,10 @@ Route::group(['prefix' => 'v1', 'as' => 'api.', 'namespace' => 'Api\V1\Admin', '
 
     // Booking
     Route::apiResource('bookings', 'BookingApiController');
+
+    // Category
+    Route::apiResource('categories', 'CategoryApiController');
+
+    // Contact
+    Route::apiResource('contacts', 'ContactApiController');
 });

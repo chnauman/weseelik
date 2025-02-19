@@ -130,4 +130,9 @@ class Garage extends Model implements HasMedia
     {
         return $this->belongsToMany(Service::class);
     }
+
+    public function categories()
+    {
+        return $this->belongsToMany(Category::class);
+    }
 }
