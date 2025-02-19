@@ -205,6 +205,8 @@ return [
             'user_helper'                => ' ',
             'rating'                     => 'Rating',
             'rating_helper'              => ' ',
+            'category'                   => 'Categories',
+            'category_helper'            => ' ',
         ],
     ],
     'vehicleBrand' => [
@@ -299,6 +301,22 @@ return [
             'updated_at_helper'        => ' ',
             'deleted_at'               => 'Deleted at',
             'deleted_at_helper'        => ' ',
+        ],
+    ],
+    'category' => [
+        'title'          => 'Categories',
+        'title_singular' => 'Category',
+        'fields'         => [
+            'id'                => 'ID',
+            'id_helper'         => ' ',
+            'title'             => 'Title',
+            'title_helper'      => ' ',
+            'created_at'        => 'Created at',
+            'created_at_helper' => ' ',
+            'updated_at'        => 'Updated at',
+            'updated_at_helper' => ' ',
+            'deleted_at'        => 'Deleted at',
+            'deleted_at_helper' => ' ',
         ],
     ],
 

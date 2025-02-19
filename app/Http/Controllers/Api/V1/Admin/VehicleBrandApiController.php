@@ -18,7 +18,7 @@ class VehicleBrandApiController extends Controller
 
     public function index()
     {
-        //abort_if(Gate::denies('vehicle_brand_access'), Response::HTTP_FORBIDDEN, '403 Forbidden');
+        abort_if(Gate::denies('vehicle_brand_access'), Response::HTTP_FORBIDDEN, '403 Forbidden');
 
         return new VehicleBrandResource(VehicleBrand::all());
     }

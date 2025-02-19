@@ -1,7 +1,5 @@
 <?php
 
-use App\Models\User;
-
 Route::redirect('/', '/login');
 Route::get('/home', function () {
     if (session('status')) {
@@ -70,6 +68,10 @@ Route::group(['prefix' => 'admin', 'as' => 'admin.', 'namespace' => 'Admin', 'mi
     // Booking
     Route::delete('bookings/destroy', 'BookingController@massDestroy')->name('bookings.massDestroy');
     Route::resource('bookings', 'BookingController');
+
+    // Category
+    Route::delete('categories/destroy', 'CategoryController@massDestroy')->name('categories.massDestroy');
+    Route::resource('categories', 'CategoryController');
 });
 Route::group(['prefix' => 'profile', 'as' => 'profile.', 'namespace' => 'Auth', 'middleware' => ['auth']], function () {
     // Change password
@@ -79,12 +81,4 @@ Route::group(['prefix' => 'profile', 'as' => 'profile.', 'namespace' => 'Auth', 
         Route::post('profile', 'ChangePasswordController@updateProfile')->name('password.updateProfile');
         Route::post('profile/destroy', 'ChangePasswordController@destroy')->name('password.destroyProfile');
     }
-});
-
-Route::get('/token', function (){
-
-    $user = User::find(1); // Replace with your test user ID
-    $token = $user->createToken('test-token')->plainTextToken;
-
-    echo $token;
 });

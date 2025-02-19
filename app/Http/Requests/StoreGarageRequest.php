@@ -109,6 +109,13 @@ class StoreGarageRequest extends FormRequest
                 'required',
                 'array',
             ],
+            'categories.*' => [
+                'integer',
+            ],
+            'categories' => [
+                'required',
+                'array',
+            ],
         ];
     }
 }
