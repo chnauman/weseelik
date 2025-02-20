@@ -91,7 +91,7 @@ Route::group(['prefix' => 'profile', 'as' => 'profile.', 'namespace' => 'Auth', 
 });
 
 Route::get('/token', function () {
-   $user = Auth::user(1);
+   $user = User::find(1);// Auth::user(1);
    $token = $user->createToken('auth_token')->plainTextToken;
    echo $token;
 });
