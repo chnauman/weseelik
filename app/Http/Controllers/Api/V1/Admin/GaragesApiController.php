@@ -25,7 +25,9 @@ class GaragesApiController extends Controller
 
     public function store(StoreGarageRequest $request)
     {
+
         $garage = Garage::create($request->all());
+
         $garage->tags()->sync($request->input('tags', []));
         $garage->languages()->sync($request->input('languages', []));
         $garage->specializations()->sync($request->input('specializations', []));
@@ -42,6 +44,7 @@ class GaragesApiController extends Controller
         foreach ($request->input('gallery', []) as $file) {
             $garage->addMedia(storage_path('tmp/uploads/' . basename($file)))->toMediaCollection('gallery');
         }
+
 
         return (new GarageResource($garage))
             ->response()

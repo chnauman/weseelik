@@ -9,18 +9,23 @@ use Illuminate\Http\Response;
 
 class StoreGarageRequest extends FormRequest
 {
+
     public function authorize()
     {
-        return Gate::allows('garage_create');
+        //return Gate::allows('garage_create');
+        return true;
     }
+
 
     public function rules()
     {
         return [
+            /*
             'user_id' => [
                 'required',
                 'integer',
             ],
+            */
             'title' => [
                 'string',
                 'required',
@@ -72,6 +77,7 @@ class StoreGarageRequest extends FormRequest
             'status' => [
                 'required',
             ],
+            /*
             'logo' => [
                 'required',
             ],
@@ -81,6 +87,7 @@ class StoreGarageRequest extends FormRequest
             'gallery' => [
                 'array',
             ],
+            */
             'tags.*' => [
                 'integer',
             ],
