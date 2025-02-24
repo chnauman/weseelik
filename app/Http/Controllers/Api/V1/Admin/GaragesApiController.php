@@ -11,6 +11,7 @@ use App\Models\Garage;
 use Gate;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
+use Illuminate\Support\Facades\Storage;
 
 class GaragesApiController extends Controller
 {
@@ -33,16 +34,28 @@ class GaragesApiController extends Controller
         $garage->specializations()->sync($request->input('specializations', []));
         $garage->services()->sync($request->input('services', []));
         $garage->categories()->sync($request->input('categories', []));
-        if ($request->input('logo', false)) {
-            $garage->addMedia(storage_path('tmp/uploads/' . basename($request->input('logo'))))->toMediaCollection('logo');
+        $paths = [];
+
+        if ($request->hasFile('logo')) {
+            $path = $request->file('logo')->store('uploads/logos', 'public');
+            $paths['logo'] = asset('storage/' . $path);
+            $garage->update(['logo' => $path]);
         }
 
-        if ($request->input('storefront_image', false)) {
-            $garage->addMedia(storage_path('tmp/uploads/' . basename($request->input('storefront_image'))))->toMediaCollection('storefront_image');
+        if ($request->hasFile('storefront_image')) {
+            $path = $request->file('storefront_image')->store('uploads/storefronts', 'public');
+            $paths['storefront_image'] = asset('storage/' . $path);
+            $garage->update(['storefront_image' => $path]);
         }
 
-        foreach ($request->input('gallery', []) as $file) {
-            $garage->addMedia(storage_path('tmp/uploads/' . basename($file)))->toMediaCollection('gallery');
+        if ($request->hasFile('gallery')) {
+            $galleryPaths = [];
+            foreach ($request->file('gallery') as $file) {
+                $path = $file->store('uploads/galleries', 'public');
+                $galleryPaths[] = asset('storage/' . $path);
+            }
+            $garage->update(['gallery' => json_encode($galleryPaths)]);
+            $paths['gallery'] = $galleryPaths;
         }
 
 
@@ -66,35 +79,40 @@ class GaragesApiController extends Controller
         $garage->specializations()->sync($request->input('specializations', []));
         $garage->services()->sync($request->input('services', []));
         $garage->categories()->sync($request->input('categories', []));
-        if ($request->input('logo', false)) {
-            if (! $garage->logo || $request->input('logo') !== $garage->logo->file_name) {
-                if ($garage->logo) {
-                    $garage->logo->delete();
-                }
-                $garage->addMedia(storage_path('tmp/uploads/' . basename($request->input('logo'))))->toMediaCollection('logo');
+        if ($request->hasFile('logo')) {
+            if ($garage->logo) {
+                \Storage::delete('public/' . $garage->logo);
             }
-        } elseif ($garage->logo) {
-            $garage->logo->delete();
+            $path = $request->file('logo')->store('uploads/logos', 'public');
+            $paths['logo'] = asset('storage/' . $path);
+            $garage->update(['logo' => $path]);
         }
 
-        if ($request->input('storefront_image', false)) {
-            if (! $garage->storefront_image || $request->input('storefront_image') !== $garage->storefront_image->file_name) {
-                if ($garage->storefront_image) {
-                    $garage->storefront_image->delete();
-                }
-                $garage->addMedia(storage_path('tmp/uploads/' . basename($request->input('storefront_image'))))->toMediaCollection('storefront_image');
+        if ($request->hasFile('storefront_image')) {
+            if ($garage->storefront_image) {
+                \Storage::delete('public/' . $garage->storefront_image);
             }
-        } elseif ($garage->storefront_image) {
-            $garage->storefront_image->delete();
+            $path = $request->file('storefront_image')->store('uploads/storefronts', 'public');
+            $paths['storefront_image'] = asset('storage/' . $path);
+            $garage->update(['storefront_image' => $path]);
         }
 
-        if (count($garage->gallery) > 0) {
-            foreach ($garage->gallery as $media) {
-                if (! in_array($media->file_name, $request->input('gallery', []))) {
-                    $media->delete();
+        if ($request->hasFile('gallery')) {
+            if (!empty($garage->gallery)) {
+                foreach (json_decode($garage->gallery, true) as $oldPath) {
+                    \Storage::delete('public/' . str_replace(asset('storage/'), '', $oldPath));
                 }
             }
+
+            $galleryPaths = [];
+            foreach ($request->file('gallery') as $file) {
+                $path = $file->store('uploads/galleries', 'public');
+                $galleryPaths[] = asset('storage/' . $path);
+            }
+            $garage->update(['gallery' => json_encode($galleryPaths)]);
+            $paths['gallery'] = $galleryPaths;
         }
+
         $media = $garage->gallery->pluck('file_name')->toArray();
         foreach ($request->input('gallery', []) as $file) {
             if (count($media) === 0 || ! in_array($file, $media)) {
