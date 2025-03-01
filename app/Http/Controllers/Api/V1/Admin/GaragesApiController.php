@@ -33,6 +33,25 @@ class GaragesApiController extends Controller
         $garage->specializations()->sync($request->input('specializations', []));
         $garage->services()->sync($request->input('services', []));
         $garage->categories()->sync($request->input('categories', []));
+
+        // Handle logo upload
+        if ($request->hasFile('logo')) {
+            $garage->addMedia($request->file('logo'))->toMediaCollection('logo');
+        }
+
+        // Handle storefront image upload
+        if ($request->hasFile('storefront_image')) {
+            $garage->addMedia($request->file('storefront_image'))->toMediaCollection('storefront_image');
+        }
+
+        // Handle gallery upload
+        if ($request->hasFile('gallery')) {
+            foreach ($request->file('gallery') as $file) {
+                $garage->addMedia($file)->toMediaCollection('gallery');
+            }
+        }
+        /*
+
         if ($request->input('logo', false)) {
             $garage->addMedia(storage_path('tmp/uploads/' . basename($request->input('logo'))))->toMediaCollection('logo');
         }
@@ -44,7 +63,7 @@ class GaragesApiController extends Controller
         foreach ($request->input('gallery', []) as $file) {
             $garage->addMedia(storage_path('tmp/uploads/' . basename($file)))->toMediaCollection('gallery');
         }
-
+*/
 
         return (new GarageResource($garage))
             ->response()
