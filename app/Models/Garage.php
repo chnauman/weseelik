@@ -45,8 +45,6 @@ class Garage extends Model implements HasMedia
         'latitude',
         'longitude',
         'working_hours',
-        'opening_time',
-        'closing_time',
         'status',
         'rating',
         'created_at',
@@ -134,5 +132,10 @@ class Garage extends Model implements HasMedia
     public function categories()
     {
         return $this->belongsToMany(Category::class);
+    }
+
+    public function work_shifts()
+    {
+        return $this->hasMany(WorkShift::class, 'garage_id');
     }
 }
