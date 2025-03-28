@@ -38,4 +38,7 @@ Route::group(['prefix' => 'v1', 'as' => 'api.', 'namespace' => 'Api\V1\Admin', '
 
     // Contact
     Route::apiResource('contacts', 'ContactApiController');
+
+    // Work Shift
+    Route::apiResource('work-shifts', 'WorkShiftApiController');
 });

@@ -119,36 +119,6 @@
                 <span class="help-block">{{ trans('cruds.garage.fields.longitude_helper') }}</span>
             </div>
             <div class="form-group">
-                <label class="required" for="working_hours">{{ trans('cruds.garage.fields.working_hours') }}</label>
-                <input class="form-control {{ $errors->has('working_hours') ? 'is-invalid' : '' }}" type="text" name="working_hours" id="working_hours" value="{{ old('working_hours', $garage->working_hours) }}" required>
-                @if($errors->has('working_hours'))
-                    <div class="invalid-feedback">
-                        {{ $errors->first('working_hours') }}
-                    </div>
-                @endif
-                <span class="help-block">{{ trans('cruds.garage.fields.working_hours_helper') }}</span>
-            </div>
-            <div class="form-group">
-                <label class="required" for="opening_time">{{ trans('cruds.garage.fields.opening_time') }}</label>
-                <input class="form-control {{ $errors->has('opening_time') ? 'is-invalid' : '' }}" type="text" name="opening_time" id="opening_time" value="{{ old('opening_time', $garage->opening_time) }}" required>
-                @if($errors->has('opening_time'))
-                    <div class="invalid-feedback">
-                        {{ $errors->first('opening_time') }}
-                    </div>
-                @endif
-                <span class="help-block">{{ trans('cruds.garage.fields.opening_time_helper') }}</span>
-            </div>
-            <div class="form-group">
-                <label class="required" for="closing_time">{{ trans('cruds.garage.fields.closing_time') }}</label>
-                <input class="form-control {{ $errors->has('closing_time') ? 'is-invalid' : '' }}" type="text" name="closing_time" id="closing_time" value="{{ old('closing_time', $garage->closing_time) }}" required>
-                @if($errors->has('closing_time'))
-                    <div class="invalid-feedback">
-                        {{ $errors->first('closing_time') }}
-                    </div>
-                @endif
-                <span class="help-block">{{ trans('cruds.garage.fields.closing_time_helper') }}</span>
-            </div>
-            <div class="form-group">
                 <label class="required">{{ trans('cruds.garage.fields.status') }}</label>
                 <select class="form-control {{ $errors->has('status') ? 'is-invalid' : '' }}" name="status" id="status" required>
                     <option value disabled {{ old('status', null) === null ? 'selected' : '' }}>{{ trans('global.pleaseSelect') }}</option>
@@ -285,6 +255,21 @@
                     </div>
                 @endif
                 <span class="help-block">{{ trans('cruds.garage.fields.category_helper') }}</span>
+            </div>
+            <div class="form-group">
+                <label class="required">{{ trans('cruds.garage.fields.registered_by') }}</label>
+                <select class="form-control {{ $errors->has('registered_by') ? 'is-invalid' : '' }}" name="registered_by" id="registered_by" required>
+                    <option value disabled {{ old('registered_by', null) === null ? 'selected' : '' }}>{{ trans('global.pleaseSelect') }}</option>
+                    @foreach(App\Models\Garage::REGISTERED_BY_SELECT as $key => $label)
+                        <option value="{{ $key }}" {{ old('registered_by', $garage->registered_by) === (string) $key ? 'selected' : '' }}>{{ $label }}</option>
+                    @endforeach
+                </select>
+                @if($errors->has('registered_by'))
+                    <div class="invalid-feedback">
+                        {{ $errors->first('registered_by') }}
+                    </div>
+                @endif
+                <span class="help-block">{{ trans('cruds.garage.fields.registered_by_helper') }}</span>
             </div>
             <div class="form-group">
                 <button class="btn btn-danger" type="submit">

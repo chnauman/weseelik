@@ -316,6 +316,26 @@ class PermissionsTableSeeder extends Seeder
             ],
             [
                 'id'    => 77,
+                'title' => 'work_shift_create',
+            ],
+            [
+                'id'    => 78,
+                'title' => 'work_shift_edit',
+            ],
+            [
+                'id'    => 79,
+                'title' => 'work_shift_show',
+            ],
+            [
+                'id'    => 80,
+                'title' => 'work_shift_delete',
+            ],
+            [
+                'id'    => 81,
+                'title' => 'work_shift_access',
+            ],
+            [
+                'id'    => 82,
                 'title' => 'profile_password_edit',
             ],
         ];

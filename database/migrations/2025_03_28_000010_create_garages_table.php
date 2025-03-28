@@ -18,11 +18,9 @@ class CreateGaragesTable extends Migration
             $table->string('city')->nullable();
             $table->string('latitude');
             $table->string('longitude')->nullable();
-            $table->string('working_hours');
-            $table->string('opening_time');
-            $table->string('closing_time');
             $table->string('status');
             $table->integer('rating')->nullable();
+            $table->string('registered_by');
             $table->timestamps();
             $table->softDeletes();
         });

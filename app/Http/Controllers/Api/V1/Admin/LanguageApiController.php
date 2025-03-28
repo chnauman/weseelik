@@ -15,7 +15,7 @@ class LanguageApiController extends Controller
 {
     public function index()
     {
-        //abort_if(Gate::denies('language_access'), Response::HTTP_FORBIDDEN, '403 Forbidden');
+        abort_if(Gate::denies('language_access'), Response::HTTP_FORBIDDEN, '403 Forbidden');
 
         return new LanguageResource(Language::all());
     }

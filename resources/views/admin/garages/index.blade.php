@@ -56,15 +56,6 @@
                             {{ trans('cruds.garage.fields.longitude') }}
                         </th>
                         <th>
-                            {{ trans('cruds.garage.fields.working_hours') }}
-                        </th>
-                        <th>
-                            {{ trans('cruds.garage.fields.opening_time') }}
-                        </th>
-                        <th>
-                            {{ trans('cruds.garage.fields.closing_time') }}
-                        </th>
-                        <th>
                             {{ trans('cruds.garage.fields.status') }}
                         </th>
                         <th>
@@ -93,6 +84,9 @@
                         </th>
                         <th>
                             {{ trans('cruds.garage.fields.rating') }}
+                        </th>
+                        <th>
+                            {{ trans('cruds.garage.fields.registered_by') }}
                         </th>
                         <th>
                             &nbsp;
@@ -137,15 +131,6 @@
                             </td>
                             <td>
                                 {{ $garage->longitude ?? '' }}
-                            </td>
-                            <td>
-                                {{ $garage->working_hours ?? '' }}
-                            </td>
-                            <td>
-                                {{ $garage->opening_time ?? '' }}
-                            </td>
-                            <td>
-                                {{ $garage->closing_time ?? '' }}
                             </td>
                             <td>
                                 {{ App\Models\Garage::STATUS_SELECT[$garage->status] ?? '' }}
@@ -198,6 +183,9 @@
                             </td>
                             <td>
                                 {{ $garage->rating ?? '' }}
+                            </td>
+                            <td>
+                                {{ App\Models\Garage::REGISTERED_BY_SELECT[$garage->registered_by] ?? '' }}
                             </td>
                             <td>
                                 @can('garage_show')
