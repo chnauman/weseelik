@@ -50,6 +50,7 @@ class GaragesApiController extends Controller
             foreach ($request->input('contacts') as $contactData) {
                 $garage->contacts()->create([
                     'contact_no' => $contactData['contact_no'],
+                    'type' => $contactData['type'] ?? 'mobile',
                     'status' => $contactData['status'] ?? 'active',
                 ]);
             }
@@ -131,6 +132,7 @@ class GaragesApiController extends Controller
             foreach ($request->input('contacts') as $contactData) {
                 $garage->contacts()->create([
                     'contact_no' => $contactData['contact_no'],
+                    'type' => $contactData['type'] ?? 'mobile',
                     'status' => $contactData['status'] ?? 'active',
                 ]);
             }

@@ -136,6 +136,11 @@ class StoreGarageRequest extends FormRequest
                 'required',
                 'string',
             ],
+            'contacts.*.type' => [
+                'nullable',
+                'string',
+                'in:mobile,landline,fax',
+            ],
             'contacts.*.status' => [
                 'nullable',
                 'string',

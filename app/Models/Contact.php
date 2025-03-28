@@ -24,9 +24,16 @@ class Contact extends Model
         'deactive' => 'Deactive',
     ];
 
+    public const TYPE_SELECT = [
+        'mobile'   => 'Mobile',
+        'landline' => 'Landline',
+        'fax'      => 'Fax',
+    ];
+
     protected $fillable = [
         'garage_id',
         'contact_no',
+        'type',
         'status',
         'created_at',
         'updated_at',
