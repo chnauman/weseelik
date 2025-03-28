@@ -57,18 +57,6 @@ class UpdateGarageRequest extends FormRequest
                 'string',
                 'nullable',
             ],
-            'working_hours' => [
-                'string',
-                'required',
-            ],
-            'opening_time' => [
-                'string',
-                'required',
-            ],
-            'closing_time' => [
-                'string',
-                'required',
-            ],
             'status' => [
                 'required',
             ],
@@ -115,6 +103,9 @@ class UpdateGarageRequest extends FormRequest
             'categories' => [
                 'required',
                 'array',
+            ],
+            'registered_by' => [
+                'required',
             ],
         ];
     }

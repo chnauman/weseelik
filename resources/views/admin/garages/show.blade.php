@@ -105,30 +105,6 @@
                     </tr>
                     <tr>
                         <th>
-                            {{ trans('cruds.garage.fields.working_hours') }}
-                        </th>
-                        <td>
-                            {{ $garage->working_hours }}
-                        </td>
-                    </tr>
-                    <tr>
-                        <th>
-                            {{ trans('cruds.garage.fields.opening_time') }}
-                        </th>
-                        <td>
-                            {{ $garage->opening_time }}
-                        </td>
-                    </tr>
-                    <tr>
-                        <th>
-                            {{ trans('cruds.garage.fields.closing_time') }}
-                        </th>
-                        <td>
-                            {{ $garage->closing_time }}
-                        </td>
-                    </tr>
-                    <tr>
-                        <th>
                             {{ trans('cruds.garage.fields.status') }}
                         </th>
                         <td>
@@ -227,6 +203,14 @@
                         </th>
                         <td>
                             {{ $garage->rating }}
+                        </td>
+                    </tr>
+                    <tr>
+                        <th>
+                            {{ trans('cruds.garage.fields.registered_by') }}
+                        </th>
+                        <td>
+                            {{ App\Models\Garage::REGISTERED_BY_SELECT[$garage->registered_by] ?? '' }}
                         </td>
                     </tr>
                 </tbody>
