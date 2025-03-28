@@ -129,6 +129,18 @@ class StoreGarageRequest extends FormRequest
                 'nullable',
                 'string',
             ],
+            'contacts' => [
+                'array',
+            ],
+            'contacts.*.contact_no' => [
+                'required',
+                'string',
+            ],
+            'contacts.*.status' => [
+                'nullable',
+                'string',
+                'in:active,deactive',
+            ],
         ];
     }
 }

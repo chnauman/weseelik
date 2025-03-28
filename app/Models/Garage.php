@@ -143,4 +143,9 @@ class Garage extends Model implements HasMedia
     {
         return $this->hasMany(WorkShift::class, 'garage_id');
     }
+
+    public function contacts()
+    {
+        return $this->hasMany(Contact::class, 'garage_id');
+    }
 }

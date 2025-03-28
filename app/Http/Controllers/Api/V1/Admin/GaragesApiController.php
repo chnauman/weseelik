@@ -8,6 +8,7 @@ use App\Http\Requests\StoreGarageRequest;
 use App\Http\Requests\UpdateGarageRequest;
 use App\Http\Resources\Admin\GarageResource;
 use App\Models\Garage;
+use App\Models\Contact;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
@@ -20,7 +21,7 @@ class GaragesApiController extends Controller
     {
         abort_if(Gate::denies('garage_access'), Response::HTTP_FORBIDDEN, '403 Forbidden');
 
-        return new GarageResource(Garage::with(['user', 'country', 'tags', 'languages', 'specializations', 'services', 'categories', 'work_shifts'])->get());
+        return new GarageResource(Garage::with(['user', 'country', 'tags', 'languages', 'specializations', 'services', 'categories', 'work_shifts', 'contacts'])->get());
     }
 
     public function store(StoreGarageRequest $request)
@@ -40,6 +41,16 @@ class GaragesApiController extends Controller
                     'opening_time' => $shiftData['opening_time'],
                     'closing_time' => $shiftData['closing_time'],
                     'day_of_week' => $shiftData['day_of_week'] ?? null,
+                ]);
+            }
+        }
+
+        // Create contacts for the garage
+        if ($request->has('contacts') && is_array($request->input('contacts'))) {
+            foreach ($request->input('contacts') as $contactData) {
+                $garage->contacts()->create([
+                    'contact_no' => $contactData['contact_no'],
+                    'status' => $contactData['status'] ?? 'active',
                 ]);
             }
         }
@@ -84,7 +95,7 @@ class GaragesApiController extends Controller
     {
         abort_if(Gate::denies('garage_show'), Response::HTTP_FORBIDDEN, '403 Forbidden');
 
-        return new GarageResource($garage->load(['user', 'country', 'tags', 'languages', 'specializations', 'services', 'categories', 'work_shifts']));
+        return new GarageResource($garage->load(['user', 'country', 'tags', 'languages', 'specializations', 'services', 'categories', 'work_shifts', 'contacts']));
     }
 
     public function update(UpdateGarageRequest $request, Garage $garage)
@@ -107,6 +118,20 @@ class GaragesApiController extends Controller
                     'opening_time' => $shiftData['opening_time'],
                     'closing_time' => $shiftData['closing_time'],
                     'day_of_week' => $shiftData['day_of_week'] ?? null,
+                ]);
+            }
+        }
+        
+        // Update contacts
+        if ($request->has('contacts') && is_array($request->input('contacts'))) {
+            // Delete existing contacts for this garage
+            $garage->contacts()->delete();
+            
+            // Create new contacts based on request data
+            foreach ($request->input('contacts') as $contactData) {
+                $garage->contacts()->create([
+                    'contact_no' => $contactData['contact_no'],
+                    'status' => $contactData['status'] ?? 'active',
                 ]);
             }
         }
