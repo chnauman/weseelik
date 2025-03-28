@@ -9,7 +9,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 
 class WorkShift extends Model
 {
-    use HasFactory, SoftDeletes;
+    use SoftDeletes, HasFactory;
 
     public $table = 'work_shifts';
 
@@ -20,10 +20,10 @@ class WorkShift extends Model
     ];
 
     protected $fillable = [
-        'garage_id',
         'opening_time',
         'closing_time',
         'day_of_week',
+        'garage_id',
         'created_at',
         'updated_at',
         'deleted_at',

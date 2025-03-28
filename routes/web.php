@@ -1,8 +1,5 @@
 <?php
 
-use App\Models\User;
-use Illuminate\Support\Facades\Auth;
-
 Route::redirect('/', '/login');
 Route::get('/home', function () {
     if (session('status')) {
@@ -79,6 +76,10 @@ Route::group(['prefix' => 'admin', 'as' => 'admin.', 'namespace' => 'Admin', 'mi
     // Contact
     Route::delete('contacts/destroy', 'ContactController@massDestroy')->name('contacts.massDestroy');
     Route::resource('contacts', 'ContactController');
+
+    // Work Shift
+    Route::delete('work-shifts/destroy', 'WorkShiftController@massDestroy')->name('work-shifts.massDestroy');
+    Route::resource('work-shifts', 'WorkShiftController');
 });
 Route::group(['prefix' => 'profile', 'as' => 'profile.', 'namespace' => 'Auth', 'middleware' => ['auth']], function () {
     // Change password
@@ -89,6 +90,7 @@ Route::group(['prefix' => 'profile', 'as' => 'profile.', 'namespace' => 'Auth', 
         Route::post('profile/destroy', 'ChangePasswordController@destroy')->name('password.destroyProfile');
     }
 });
+
 
 Route::get('/token', function () {
    $user = User::find(1);// Auth::user(1);

@@ -33,6 +33,11 @@ class Garage extends Model implements HasMedia
         'approved' => 'Approved',
     ];
 
+    public const REGISTERED_BY_SELECT = [
+        'surveyor' => 'Surveyor',
+        'self'     => 'Self',
+    ];
+
     protected $fillable = [
         'user_id',
         'title',
@@ -44,9 +49,9 @@ class Garage extends Model implements HasMedia
         'country_id',
         'latitude',
         'longitude',
-        'working_hours',
         'status',
         'rating',
+        'registered_by',
         'created_at',
         'updated_at',
         'deleted_at',
