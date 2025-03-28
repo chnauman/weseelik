@@ -6,15 +6,26 @@ use Illuminate\Support\Facades\Schema;
 
 class CreateWorkShiftsTable extends Migration
 {
-    public function up()
+    /**
+     * Run the migrations.
+     */
+    public function up(): void
     {
         Schema::create('work_shifts', function (Blueprint $table) {
-            $table->bigIncrements('id');
+            $table->id();
             $table->time('opening_time');
             $table->time('closing_time');
             $table->string('day_of_week')->nullable();
             $table->timestamps();
             $table->softDeletes();
         });
+    }
+
+    /**
+     * Reverse the migrations.
+     */
+    public function down(): void
+    {
+        Schema::dropIfExists('work_shifts');
     }
 }
