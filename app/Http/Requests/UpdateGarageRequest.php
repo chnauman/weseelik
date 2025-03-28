@@ -3,7 +3,7 @@
 namespace App\Http\Requests;
 
 use App\Models\Garage;
-use Gate;
+use Illuminate\Support\Facades\Gate;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Http\Response;
 
@@ -106,6 +106,21 @@ class UpdateGarageRequest extends FormRequest
             ],
             'registered_by' => [
                 'required',
+            ],
+            'work_shifts' => [
+                'array',
+            ],
+            'work_shifts.*.opening_time' => [
+                'required',
+                'string',
+            ],
+            'work_shifts.*.closing_time' => [
+                'required',
+                'string',
+            ],
+            'work_shifts.*.day_of_week' => [
+                'nullable',
+                'string',
             ],
         ];
     }
