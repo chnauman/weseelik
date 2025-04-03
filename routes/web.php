@@ -1,5 +1,7 @@
 <?php
 
+use App\Models\User;
+
 Route::redirect('/', '/login');
 Route::get('/home', function () {
     if (session('status')) {
