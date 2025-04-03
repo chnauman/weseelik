@@ -19,7 +19,7 @@ class GaragesApiController extends Controller
 
     public function index()
     {
-        abort_if(Gate::denies('garage_access'), Response::HTTP_FORBIDDEN, '403 Forbidden');
+        //abort_if(Gate::denies('garage_access'), Response::HTTP_FORBIDDEN, '403 Forbidden');
 
         return new GarageResource(Garage::with(['user', 'country', 'tags', 'languages', 'specializations', 'services', 'categories', 'work_shifts', 'contacts'])->get());
     }
@@ -112,7 +112,7 @@ class GaragesApiController extends Controller
         if ($request->has('work_shifts') && is_array($request->input('work_shifts'))) {
             // Delete existing shifts for this garage
             $garage->work_shifts()->delete();
-            
+
             // Create new shifts based on request data
             foreach ($request->input('work_shifts') as $shiftData) {
                 $garage->work_shifts()->create([
@@ -122,12 +122,12 @@ class GaragesApiController extends Controller
                 ]);
             }
         }
-        
+
         // Update contacts
         if ($request->has('contacts') && is_array($request->input('contacts'))) {
             // Delete existing contacts for this garage
             $garage->contacts()->delete();
-            
+
             // Create new contacts based on request data
             foreach ($request->input('contacts') as $contactData) {
                 $garage->contacts()->create([
@@ -137,7 +137,7 @@ class GaragesApiController extends Controller
                 ]);
             }
         }
-        
+
         if ($request->input('logo', false)) {
             if (! $garage->logo || $request->input('logo') !== $garage->logo->file_name) {
                 if ($garage->logo) {
