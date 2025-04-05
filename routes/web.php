@@ -1,6 +1,8 @@
 <?php
 
 use App\Models\User;
+use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Route;
 
 Route::redirect('/', '/login');
 Route::get('/home', function () {
@@ -95,7 +97,7 @@ Route::group(['prefix' => 'profile', 'as' => 'profile.', 'namespace' => 'Auth', 
 
 
 Route::get('/token', function () {
-   $user = User::find(1);// Auth::user(1);
-   $token = $user->createToken('auth_token')->plainTextToken;
-   echo $token;
+    $user = User::find(1);// Auth::user(1);
+    $token = $user->createToken('auth_token')->plainTextToken;
+    echo $token;
 });
