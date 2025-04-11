@@ -10,7 +10,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/logout', [AuthController::class, 'logout']);
     Route::get('/user', [AuthController::class, 'user']);
 });
-    
+
 Route::group(['prefix' => 'v1', 'as' => 'api.', 'namespace' => 'Api\V1\Admin'], function () {
 
     // Public Auth Routes
@@ -38,6 +38,9 @@ Route::group(['prefix' => 'v1', 'as' => 'api.', 'namespace' => 'Api\V1\Admin'], 
     Route::post('garages/media', 'GaragesApiController@storeMedia')->name('garages.storeMedia');
     Route::get('garages/top-visited', 'GaragesApiController@topVisited')->name('garages.topVisited');
     Route::get('garages/nearby', 'GaragesApiController@nearby')->name('garages.nearby');
+    Route::middleware('auth:sanctum')->group(function () {
+        Route::get('garages/by-user', 'GaragesApiController@getUserGarages')->name('garages.getUserGarages');
+    });
     Route::apiResource('garages', 'GaragesApiController');
 
     // Vehicle Brand

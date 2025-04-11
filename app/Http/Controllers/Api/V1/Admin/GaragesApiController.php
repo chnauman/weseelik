@@ -285,4 +285,62 @@ class GaragesApiController extends Controller
             })
         ]);
     }
+
+    /**
+     * Get garages with favorite information for the authenticated user
+     *
+     * @param  \Illuminate\Http\Request  $request
+     * @return \Illuminate\Http\JsonResponse
+     */
+    public function getUserGarages(Request $request)
+    {
+        // Get the authenticated user
+        $user = $request->user();
+
+        // Get garages with favorite information
+        $garages = Garage::select([
+                'garages.id', 
+                'garages.title', 
+                'garages.description', 
+                'garages.contact_no',
+                'garages.latitude',
+                'garages.longitude',
+                'garages.no_of_visits',
+                'garages.no_of_likes',
+                DB::raw('CASE WHEN user_favorites.id IS NOT NULL THEN 1 ELSE 0 END as is_favorite'),
+                DB::raw('user_favorites.id as favorite_id'),
+                DB::raw('user_favorites.note as favorite_note')
+            ])
+            ->leftJoin('user_favorites', function($join) use ($user) {
+                $join->on('garages.id', '=', 'user_favorites.garage_id')
+                     ->where('user_favorites.user_id', '=', $user->id);
+            })
+            ->orderBy('is_favorite', 'desc') // Show favorites first
+            ->orderBy('garages.title')
+            ->get();
+
+        // Return a custom JSON response
+        return response()->json([
+            'success' => true,
+            'count' => $garages->count(),
+            'data' => $garages->map(function ($garage) {
+                return [
+                    'id' => $garage->id,
+                    'title' => $garage->title,
+                    'description' => $garage->description,
+                    'contact_no' => $garage->contact_no,
+                    'latitude' => $garage->latitude,
+                    'longitude' => $garage->longitude,
+                    'no_of_visits' => $garage->no_of_visits,
+                    'no_of_likes' => $garage->no_of_likes,
+                    'is_favorite' => (bool)$garage->is_favorite,
+                    'favorite_id' => $garage->is_favorite ? $garage->favorite_id : null,
+                    'favorite_note' => $garage->is_favorite ? $garage->favorite_note : null,
+                    'logo' => $garage->logo,
+                    'storefront_image' => $garage->storefront_image,
+                    'gallery' => $garage->gallery
+                ];
+            })
+        ]);
+    }
 }
