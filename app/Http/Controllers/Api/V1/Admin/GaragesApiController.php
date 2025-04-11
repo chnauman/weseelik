@@ -227,7 +227,7 @@ class GaragesApiController extends Controller
             'latitude' => 'required|numeric',
             'longitude' => 'required|numeric',
             'limit' => 'nullable|integer|min:1|max:100',
-            'radius' => 'nullable|numeric|min:0.1|max:50', // radius in kilometers
+            'radius' => 'nullable|numeric|min:0.1|max:500', // radius in kilometers
         ]);
 
         // Get parameters
@@ -240,9 +240,9 @@ class GaragesApiController extends Controller
         // This calculates the straight-line distance between two points on the Earth's surface
         // Distance is in kilometers
         $garages = Garage::select([
-                'id', 
-                'title', 
-                'description', 
+                'id',
+                'title',
+                'description',
                 'contact_no',
                 'latitude',
                 'longitude',
@@ -250,10 +250,10 @@ class GaragesApiController extends Controller
                 'no_of_likes',
                 DB::raw("(
                     6371 * acos(
-                        cos(radians($latitude)) * 
-                        cos(radians(latitude)) * 
-                        cos(radians(longitude) - radians($longitude)) + 
-                        sin(radians($latitude)) * 
+                        cos(radians($latitude)) *
+                        cos(radians(latitude)) *
+                        cos(radians(longitude) - radians($longitude)) +
+                        sin(radians($latitude)) *
                         sin(radians(latitude))
                     )
                 ) AS distance")
