@@ -150,4 +150,16 @@ class Garage extends Model implements HasMedia
     {
         return $this->hasMany(Contact::class, 'garage_id');
     }
+
+    public function userBlocks()
+    {
+        return $this->hasMany(UserBlock::class);
+    }
+
+    public function blockedByUsers()
+    {
+        return $this->belongsToMany(User::class, 'user_blocks', 'garage_id', 'user_id')
+            ->withPivot('reason')
+            ->withTimestamps();
+    }
 }

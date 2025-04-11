@@ -54,6 +54,14 @@ Route::group(['prefix' => 'v1', 'as' => 'api.', 'namespace' => 'Api\V1\Admin'], 
         Route::post('user-favorites/update-note', 'UserFavoriteApiController@updateNote')->name('user-favorites.updateNote');
     });
 
+    // User Block
+    Route::middleware('auth:sanctum')->group(function () {
+        Route::get('user-blocks', 'UserBlockApiController@index')->name('user-blocks.index');
+        Route::post('user-blocks/block', 'UserBlockApiController@blockGarage')->name('user-blocks.block');
+        Route::post('user-blocks/unblock', 'UserBlockApiController@unblockGarage')->name('user-blocks.unblock');
+        Route::get('user-blocks/is-blocked', 'UserBlockApiController@isBlocked')->name('user-blocks.isBlocked');
+    });
+
     // Message
     Route::apiResource('messages', 'MessageApiController');
 

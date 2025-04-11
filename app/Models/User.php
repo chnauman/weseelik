@@ -4,7 +4,7 @@ namespace App\Models;
 
 use Carbon\Carbon;
 use DateTimeInterface;
-use Hash;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Auth\Notifications\ResetPassword;
 use Illuminate\Contracts\Auth\MustVerifyEmail;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -83,5 +83,17 @@ class User extends Authenticatable
     public function roles()
     {
         return $this->belongsToMany(Role::class);
+    }
+
+    public function userBlocks()
+    {
+        return $this->hasMany(UserBlock::class);
+    }
+
+    public function blockedGarages()
+    {
+        return $this->belongsToMany(Garage::class, 'user_blocks', 'user_id', 'garage_id')
+            ->withPivot('reason')
+            ->withTimestamps();
     }
 }
