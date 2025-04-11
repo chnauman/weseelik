@@ -3,11 +3,7 @@
 use App\Http\Controllers\Api\AuthController;
 use Illuminate\Support\Facades\Route;
 
-// Public Auth Routes
-Route::post('/login', [AuthController::class, 'login']);
-Route::post('/register', [AuthController::class, 'register']);
-Route::post('/forgot-password', [AuthController::class, 'forgotPassword']);
-Route::post('/reset-password', [AuthController::class, 'resetPassword']);
+
 
 // Protected Routes
 Route::middleware('auth:sanctum')->group(function () {
@@ -16,6 +12,13 @@ Route::middleware('auth:sanctum')->group(function () {
 });
     
 Route::group(['prefix' => 'v1', 'as' => 'api.', 'namespace' => 'Api\V1\Admin'], function () {
+
+    // Public Auth Routes
+    Route::post('/login', [AuthController::class, 'login']);
+    Route::post('/register', [AuthController::class, 'register']);
+    Route::post('/forgot-password', [AuthController::class, 'forgotPassword']);
+    Route::post('/reset-password', [AuthController::class, 'resetPassword']);
+
     // Service
     Route::apiResource('services', 'ServiceApiController');
 
@@ -42,6 +45,10 @@ Route::group(['prefix' => 'v1', 'as' => 'api.', 'namespace' => 'Api\V1\Admin'], 
 
     // User Favorite
     Route::apiResource('user-favorites', 'UserFavoriteApiController');
+    Route::middleware('auth:sanctum')->group(function () {
+        Route::post('user-favorites/add', 'UserFavoriteApiController@addToFavorites')->name('user-favorites.add');
+        Route::post('user-favorites/update-note', 'UserFavoriteApiController@updateNote')->name('user-favorites.updateNote');
+    });
 
     // Message
     Route::apiResource('messages', 'MessageApiController');
