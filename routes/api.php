@@ -3,7 +3,11 @@
 use App\Http\Controllers\Api\AuthController;
 use Illuminate\Support\Facades\Route;
 
-
+// Public Auth Routes
+Route::post('/login', [AuthController::class, 'login']);
+Route::post('/register', [AuthController::class, 'register']);
+Route::post('/forgot-password', [AuthController::class, 'forgotPassword']);
+Route::post('/reset-password', [AuthController::class, 'resetPassword']);
 
 // Protected Routes
 Route::middleware('auth:sanctum')->group(function () {
@@ -12,13 +16,6 @@ Route::middleware('auth:sanctum')->group(function () {
 });
     
 Route::group(['prefix' => 'v1', 'as' => 'api.', 'namespace' => 'Api\V1\Admin'], function () {
-
-    // Public Auth Routes
-    Route::post('/login', [AuthController::class, 'login']);
-    Route::post('/register', [AuthController::class, 'register']);
-    Route::post('/forgot-password', [AuthController::class, 'forgotPassword']);
-    Route::post('/reset-password', [AuthController::class, 'resetPassword']);
-
     // Service
     Route::apiResource('services', 'ServiceApiController');
 
@@ -36,6 +33,7 @@ Route::group(['prefix' => 'v1', 'as' => 'api.', 'namespace' => 'Api\V1\Admin'], 
 
     // Garages
     Route::post('garages/media', 'GaragesApiController@storeMedia')->name('garages.storeMedia');
+    Route::get('garages/top-visited', 'GaragesApiController@topVisited')->name('garages.topVisited');
     Route::apiResource('garages', 'GaragesApiController');
 
     // Vehicle Brand

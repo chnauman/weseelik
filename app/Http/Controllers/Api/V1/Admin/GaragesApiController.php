@@ -187,4 +187,29 @@ class GaragesApiController extends Controller
 
         return response(null, Response::HTTP_NO_CONTENT);
     }
+
+    /**
+     * Get top visited garages
+     *
+     * @param  \Illuminate\Http\Request  $request
+     * @return \Illuminate\Http\JsonResponse
+     */
+    public function topVisited(Request $request)
+    {
+        // Validate limit parameter
+        $request->validate([
+            'limit' => 'nullable|integer|min:1|max:100',
+        ]);
+
+        // Get the limit from request or use default value of 10
+        $limit = $request->input('limit', 10);
+
+        // Query the top visited garages
+        $topGarages = Garage::orderBy('no_of_visits', 'desc')
+            ->limit($limit)
+            ->with(['user', 'country', 'tags', 'languages', 'specializations', 'services', 'categories', 'work_shifts', 'contacts'])
+            ->get();
+
+        return new GarageResource($topGarages);
+    }
 }

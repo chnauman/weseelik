@@ -55,6 +55,8 @@ class Garage extends Model implements HasMedia
         'created_at',
         'updated_at',
         'deleted_at',
+        'no_of_visits',
+        'no_of_likes'
     ];
 
     protected function serializeDate(DateTimeInterface $date)
