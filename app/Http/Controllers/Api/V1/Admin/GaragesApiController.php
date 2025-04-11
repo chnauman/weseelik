@@ -10,6 +10,7 @@ use App\Http\Resources\Admin\GarageResource;
 use App\Models\Garage;
 use App\Models\Contact;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
 
@@ -211,5 +212,77 @@ class GaragesApiController extends Controller
             ->get();
 
         return new GarageResource($topGarages);
+    }
+
+    /**
+     * Get nearby garages based on latitude and longitude
+     *
+     * @param  \Illuminate\Http\Request  $request
+     * @return \Illuminate\Http\JsonResponse
+     */
+    public function nearby(Request $request)
+    {
+        // Validate request
+        $request->validate([
+            'latitude' => 'required|numeric',
+            'longitude' => 'required|numeric',
+            'limit' => 'nullable|integer|min:1|max:100',
+            'radius' => 'nullable|numeric|min:0.1|max:50', // radius in kilometers
+        ]);
+
+        // Get parameters
+        $latitude = $request->input('latitude');
+        $longitude = $request->input('longitude');
+        $limit = $request->input('limit', 10);
+        $radius = $request->input('radius', 10); // Default radius is 10 km
+
+        // Use Haversine formula to calculate distance
+        // This calculates the straight-line distance between two points on the Earth's surface
+        // Distance is in kilometers
+        $garages = Garage::select([
+                'id', 
+                'title', 
+                'description', 
+                'contact_no',
+                'latitude',
+                'longitude',
+                'no_of_visits',
+                'no_of_likes',
+                DB::raw("(
+                    6371 * acos(
+                        cos(radians($latitude)) * 
+                        cos(radians(latitude)) * 
+                        cos(radians(longitude) - radians($longitude)) + 
+                        sin(radians($latitude)) * 
+                        sin(radians(latitude))
+                    )
+                ) AS distance")
+            ])
+            ->having('distance', '<=', $radius)
+            ->orderBy('distance')
+            ->limit($limit)
+            ->get();
+
+        // Return a custom JSON response
+        return response()->json([
+            'success' => true,
+            'count' => $garages->count(),
+            'data' => $garages->map(function ($garage) {
+                return [
+                    'id' => $garage->id,
+                    'title' => $garage->title,
+                    'description' => $garage->description,
+                    'contact_no' => $garage->contact_no,
+                    'latitude' => $garage->latitude,
+                    'longitude' => $garage->longitude,
+                    'distance' => round($garage->distance, 2) . ' km',
+                    'no_of_visits' => $garage->no_of_visits,
+                    'no_of_likes' => $garage->no_of_likes,
+                    'logo' => $garage->logo,
+                    'storefront_image' => $garage->storefront_image,
+                    'gallery' => $garage->gallery
+                ];
+            })
+        ]);
     }
 }

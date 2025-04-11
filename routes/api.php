@@ -37,6 +37,7 @@ Route::group(['prefix' => 'v1', 'as' => 'api.', 'namespace' => 'Api\V1\Admin'], 
     // Garages
     Route::post('garages/media', 'GaragesApiController@storeMedia')->name('garages.storeMedia');
     Route::get('garages/top-visited', 'GaragesApiController@topVisited')->name('garages.topVisited');
+    Route::get('garages/nearby', 'GaragesApiController@nearby')->name('garages.nearby');
     Route::apiResource('garages', 'GaragesApiController');
 
     // Vehicle Brand
