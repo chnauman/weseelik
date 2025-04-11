@@ -94,7 +94,7 @@ class GaragesApiController extends Controller
 
     public function show(Garage $garage)
     {
-        abort_if(Gate::denies('garage_show'), Response::HTTP_FORBIDDEN, '403 Forbidden');
+        //abort_if(Gate::denies('garage_show'), Response::HTTP_FORBIDDEN, '403 Forbidden');
 
         return new GarageResource($garage->load(['user', 'country', 'tags', 'languages', 'specializations', 'services', 'categories', 'work_shifts', 'contacts']));
     }

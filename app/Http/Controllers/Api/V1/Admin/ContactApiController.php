@@ -31,7 +31,7 @@ class ContactApiController extends Controller
 
     public function show(Contact $contact)
     {
-        abort_if(Gate::denies('contact_show'), Response::HTTP_FORBIDDEN, '403 Forbidden');
+        //abort_if(Gate::denies('contact_show'), Response::HTTP_FORBIDDEN, '403 Forbidden');
 
         return new ContactResource($contact->load(['garage']));
     }

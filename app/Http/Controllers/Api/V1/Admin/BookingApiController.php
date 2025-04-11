@@ -31,7 +31,7 @@ class BookingApiController extends Controller
 
     public function show(Booking $booking)
     {
-        abort_if(Gate::denies('booking_show'), Response::HTTP_FORBIDDEN, '403 Forbidden');
+        // abort_if(Gate::denies('booking_show'), Response::HTTP_FORBIDDEN, '403 Forbidden');
 
         return new BookingResource($booking->load(['user', 'garage']));
     }

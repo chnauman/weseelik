@@ -31,7 +31,7 @@ class MessageApiController extends Controller
 
     public function show(Message $message)
     {
-        abort_if(Gate::denies('message_show'), Response::HTTP_FORBIDDEN, '403 Forbidden');
+        // abort_if(Gate::denies('message_show'), Response::HTTP_FORBIDDEN, '403 Forbidden');
 
         return new MessageResource($message->load(['sender', 'receiver']));
     }

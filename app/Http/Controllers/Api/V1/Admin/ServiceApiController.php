@@ -31,7 +31,7 @@ class ServiceApiController extends Controller
 
     public function show(Service $service)
     {
-        abort_if(Gate::denies('service_show'), Response::HTTP_FORBIDDEN, '403 Forbidden');
+        // abort_if(Gate::denies('service_show'), Response::HTTP_FORBIDDEN, '403 Forbidden');
 
         return new ServiceResource($service);
     }
