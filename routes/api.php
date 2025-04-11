@@ -39,6 +39,12 @@ Route::group(['prefix' => 'v1', 'as' => 'api.', 'namespace' => 'Api\V1\Admin'], 
     Route::get('garages/top-visited', 'GaragesApiController@topVisited')->name('garages.topVisited');
     Route::get('garages/nearby', 'GaragesApiController@nearby')->name('garages.nearby');
     Route::middleware('auth:sanctum')->group(function () {
+
+        Route::get('garages/get-blocked-garages', 'UserBlockApiController@index')->name('garages.index');
+        Route::post('garages/block', 'UserBlockApiController@blockGarage')->name('garages.block');
+        Route::post('garages/unblock', 'UserBlockApiController@unblockGarage')->name('garages.unblock');
+        Route::get('garages/is-blocked', 'UserBlockApiController@isBlocked')->name('garages.isBlocked');
+
         Route::get('garages/by-user', 'GaragesApiController@getUserGarages')->name('garages.getUserGarages');
     });
     Route::apiResource('garages', 'GaragesApiController');
@@ -55,12 +61,14 @@ Route::group(['prefix' => 'v1', 'as' => 'api.', 'namespace' => 'Api\V1\Admin'], 
     });
 
     // User Block
+    /*
     Route::middleware('auth:sanctum')->group(function () {
         Route::get('user-blocks', 'UserBlockApiController@index')->name('user-blocks.index');
         Route::post('user-blocks/block', 'UserBlockApiController@blockGarage')->name('user-blocks.block');
         Route::post('user-blocks/unblock', 'UserBlockApiController@unblockGarage')->name('user-blocks.unblock');
         Route::get('user-blocks/is-blocked', 'UserBlockApiController@isBlocked')->name('user-blocks.isBlocked');
     });
+    */
 
     // Message
     Route::apiResource('messages', 'MessageApiController');
