@@ -73,7 +73,7 @@
                                 {{ $booking->user->name ?? '' }}
                             </td>
                             <td>
-                                {{ $booking->garage->name ?? '' }}
+                                {{ $booking->garage->title ?? '' }}
                             </td>
                             <td>
                                 {{ $booking->appointment_time ?? '' }}
@@ -172,7 +172,7 @@
       $($.fn.dataTable.tables(true)).DataTable()
           .columns.adjust();
   });
-  
+
 })
 
 </script>

@@ -52,7 +52,7 @@
                                 {{ $userFavorite->user->name ?? '' }}
                             </td>
                             <td>
-                                {{ $userFavorite->garage->name ?? '' }}
+                                {{ $userFavorite->garage->title ?? '' }}
                             </td>
                             <td>
                                 {{ $userFavorite->note ?? '' }}
@@ -136,7 +136,7 @@
       $($.fn.dataTable.tables(true)).DataTable()
           .columns.adjust();
   });
-  
+
 })
 
 </script>

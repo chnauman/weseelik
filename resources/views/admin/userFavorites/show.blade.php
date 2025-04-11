@@ -36,7 +36,7 @@
                             {{ trans('cruds.userFavorite.fields.garage') }}
                         </th>
                         <td>
-                            {{ $userFavorite->garage->name ?? '' }}
+                            {{ $userFavorite->garage->title ?? '' }}
                         </td>
                     </tr>
                     <tr>

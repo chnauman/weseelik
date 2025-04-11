@@ -44,7 +44,7 @@
                             {{ trans('cruds.booking.fields.garage') }}
                         </th>
                         <td>
-                            {{ $booking->garage->name ?? '' }}
+                            {{ $booking->garage->title ?? '' }}
                         </td>
                     </tr>
                     <tr>
