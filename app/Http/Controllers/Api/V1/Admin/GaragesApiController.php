@@ -9,6 +9,7 @@ use App\Http\Requests\UpdateGarageRequest;
 use App\Http\Resources\Admin\GarageResource;
 use App\Models\Garage;
 use App\Models\Contact;
+use App\Models\UserBlock;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Http\Request;
@@ -297,6 +298,11 @@ class GaragesApiController extends Controller
         // Get the authenticated user
         $user = $request->user();
 
+        // First, get IDs of garages blocked by the user
+        $blockedGarageIds = UserBlock::where('user_id', $user->id)
+            ->pluck('garage_id')
+            ->toArray();
+
         // Get garages with favorite information, excluding blocked garages
         $garages = Garage::select([
                 'garages.id', 
@@ -315,13 +321,8 @@ class GaragesApiController extends Controller
                 $join->on('garages.id', '=', 'user_favorites.garage_id')
                      ->where('user_favorites.user_id', '=', $user->id);
             })
-            // Left join with user_blocks to check if garage is blocked
-            ->leftJoin('user_blocks', function($join) use ($user) {
-                $join->on('garages.id', '=', 'user_blocks.garage_id')
-                     ->where('user_blocks.user_id', '=', $user->id);
-            })
-            // Only include garages that are not blocked (user_blocks.id is NULL)
-            ->whereNull('user_blocks.id')
+            // Exclude blocked garages using whereNotIn
+            ->whereNotIn('garages.id', $blockedGarageIds)
             ->orderBy('is_favorite', 'desc') // Show favorites first
             ->orderBy('garages.title')
             ->get();
