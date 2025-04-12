@@ -297,7 +297,7 @@ class GaragesApiController extends Controller
         // Get the authenticated user
         $user = $request->user();
 
-        // Get garages with favorite information
+        // Get garages with favorite information, excluding blocked garages
         $garages = Garage::select([
                 'garages.id', 
                 'garages.title', 
@@ -315,6 +315,13 @@ class GaragesApiController extends Controller
                 $join->on('garages.id', '=', 'user_favorites.garage_id')
                      ->where('user_favorites.user_id', '=', $user->id);
             })
+            // Left join with user_blocks to check if garage is blocked
+            ->leftJoin('user_blocks', function($join) use ($user) {
+                $join->on('garages.id', '=', 'user_blocks.garage_id')
+                     ->where('user_blocks.user_id', '=', $user->id);
+            })
+            // Only include garages that are not blocked (user_blocks.id is NULL)
+            ->whereNull('user_blocks.id')
             ->orderBy('is_favorite', 'desc') // Show favorites first
             ->orderBy('garages.title')
             ->get();
