@@ -90,13 +90,6 @@ class StoreGarageRequest extends FormRequest
                 'required',
                 'array',
             ],
-            'specializations.*' => [
-                'integer',
-            ],
-            'specializations' => [
-                'required',
-                'array',
-            ],
             'services.*' => [
                 'integer',
             ],
@@ -104,6 +97,7 @@ class StoreGarageRequest extends FormRequest
                 'required',
                 'array',
             ],
+            /*
             'categories.*' => [
                 'integer',
             ],
@@ -111,6 +105,14 @@ class StoreGarageRequest extends FormRequest
                 'required',
                 'array',
             ],
+            'specializations.*' => [
+                'integer',
+            ],
+            'specializations' => [
+                'required',
+                'array',
+            ],
+            */
             'registered_by' => [
                 'required',
             ],
