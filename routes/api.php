@@ -54,12 +54,12 @@ Route::group(['prefix' => 'v1', 'as' => 'api.', 'namespace' => 'Api\V1\Admin'], 
     Route::apiResource('vehicle-brands', 'VehicleBrandApiController');
 
     // User Favorite
-    Route::apiResource('user-favorites', 'UserFavoriteApiController');
     Route::middleware('auth:sanctum')->group(function () {
         Route::post('user-favorites/add', 'UserFavoriteApiController@addToFavorites')->name('user-favorites.add');
         Route::post('user-favorites/update-note', 'UserFavoriteApiController@updateNote')->name('user-favorites.updateNote');
+        Route::get('user-favorites/get-favorties', 'UserFavoriteApiController@getUserFavorties')->name('user-favorites.get-favorties');
     });
-
+    Route::apiResource('user-favorites', 'UserFavoriteApiController');
     // User Block
     /*
     Route::middleware('auth:sanctum')->group(function () {

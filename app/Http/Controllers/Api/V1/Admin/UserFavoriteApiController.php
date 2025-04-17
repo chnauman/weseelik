@@ -54,6 +54,13 @@ class UserFavoriteApiController extends Controller
         return response(null, Response::HTTP_NO_CONTENT);
     }
 
+    public function getUserFavorties(Request $request)
+    {
+        $user = $request->user();
+        return new UserFavoriteResource(UserFavorite::with(['user', 'garage'])->where('user_id',$user->id)->get());
+        //return new UserFavoriteResource( $user->favorties())->get());
+    }
+
     /**
      * Add a garage to the authenticated user's favorites
      *
@@ -69,12 +76,12 @@ class UserFavoriteApiController extends Controller
 
         // Get the authenticated user
         $user = $request->user();
-        
+
         // Check if this garage is already in the user's favorites
         $existingFavorite = UserFavorite::where('user_id', $user->id)
             ->where('garage_id', $request->garage_id)
             ->first();
-            
+
         if ($existingFavorite) {
             return response()->json([
                 'success' => false,
@@ -82,20 +89,20 @@ class UserFavoriteApiController extends Controller
                 'data' => new UserFavoriteResource($existingFavorite)
             ]);
         }
-        
+
         // Create new favorite
         $userFavorite = UserFavorite::create([
             'user_id' => $user->id,
             'garage_id' => $request->garage_id,
         ]);
-        
+
         return response()->json([
             'success' => true,
             'message' => 'Garage added to favorites successfully',
             'data' => new UserFavoriteResource($userFavorite)
         ], Response::HTTP_CREATED);
     }
-    
+
     /**
      * Update the note for a favorite garage
      *
@@ -109,27 +116,27 @@ class UserFavoriteApiController extends Controller
             'favorite_id' => 'required|exists:user_favorites,id',
             'note' => 'required|string|max:1000',
         ]);
-        
+
         // Get the authenticated user
         $user = $request->user();
-        
+
         // Find the favorite and ensure it belongs to the authenticated user
         $userFavorite = UserFavorite::where('id', $request->favorite_id)
             ->where('user_id', $user->id)
             ->first();
-            
+
         if (!$userFavorite) {
             return response()->json([
                 'success' => false,
                 'message' => 'Favorite not found or does not belong to you'
             ], Response::HTTP_NOT_FOUND);
         }
-        
+
         // Update the note
         $userFavorite->update([
             'note' => $request->note
         ]);
-        
+
         return response()->json([
             'success' => true,
             'message' => 'Note updated successfully',

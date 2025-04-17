@@ -90,6 +90,11 @@ class User extends Authenticatable
         return $this->hasMany(UserBlock::class);
     }
 
+    public function favorties()
+    {
+        return $this->hasMany(UserFavorite::class);
+    }
+
     public function blockedGarages()
     {
         return $this->belongsToMany(Garage::class, 'user_blocks', 'user_id', 'garage_id')
