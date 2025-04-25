@@ -33,6 +33,14 @@
                     </tr>
                     <tr>
                         <th>
+                            {{ trans('cruds.vehicleBrand.fields.tag') }}
+                        </th>
+                        <td>
+                            {{ $vehicleBrand->tag->title ?? '' }}
+                        </td>
+                    </tr>
+                    <tr>
+                        <th>
                             {{ trans('cruds.vehicleBrand.fields.logo') }}
                         </th>
                         <td>

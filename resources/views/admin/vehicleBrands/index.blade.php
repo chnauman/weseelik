@@ -29,6 +29,9 @@
                             {{ trans('cruds.vehicleBrand.fields.title') }}
                         </th>
                         <th>
+                            {{ trans('cruds.vehicleBrand.fields.tag') }}
+                        </th>
+                        <th>
                             {{ trans('cruds.vehicleBrand.fields.logo') }}
                         </th>
                         <th>
@@ -47,6 +50,9 @@
                             </td>
                             <td>
                                 {{ $vehicleBrand->title ?? '' }}
+                            </td>
+                            <td>
+                                {{ $vehicleBrand->tag->title ?? '' }}
                             </td>
                             <td>
                                 @if($vehicleBrand->logo)

@@ -28,6 +28,7 @@ class VehicleBrand extends Model implements HasMedia
 
     protected $fillable = [
         'title',
+        'tag_id',
         'created_at',
         'updated_at',
         'deleted_at',
@@ -54,5 +55,22 @@ class VehicleBrand extends Model implements HasMedia
         }
 
         return $file;
+    }
+
+    public function tag()
+    {
+        return $this->belongsTo(Tag::class);
+    }
+
+    public function users()
+    {
+        return $this->belongsToMany(User::class, 'user_vehicle_brands')
+            ->withPivot(['is_primary', 'model', 'year', 'color', 'license_plate'])
+            ->withTimestamps();
+    }
+    
+    public function userVehicleBrands()
+    {
+        return $this->hasMany(UserVehicleBrand::class);
     }
 }

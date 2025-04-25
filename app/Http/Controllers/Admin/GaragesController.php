@@ -15,7 +15,7 @@ use App\Models\Service;
 use App\Models\Specialization;
 use App\Models\Tag;
 use App\Models\User;
-use Gate;
+use Illuminate\Support\Facades\Gate;
 use Illuminate\Http\Request;
 use Spatie\MediaLibrary\MediaCollections\Models\Media;
 use Symfony\Component\HttpFoundation\Response;
@@ -37,7 +37,7 @@ class GaragesController extends Controller
     {
         abort_if(Gate::denies('garage_create'), Response::HTTP_FORBIDDEN, '403 Forbidden');
 
-        $users = User::pluck('name', 'id')->prepend(trans('global.pleaseSelect'), '');
+        $users = User::where('type', 'business')->pluck('name', 'id')->prepend(trans('global.pleaseSelect'), '');
 
         $countries = Country::pluck('name', 'id')->prepend(trans('global.pleaseSelect'), '');
 
@@ -85,7 +85,7 @@ class GaragesController extends Controller
     {
         abort_if(Gate::denies('garage_edit'), Response::HTTP_FORBIDDEN, '403 Forbidden');
 
-        $users = User::pluck('name', 'id')->prepend(trans('global.pleaseSelect'), '');
+        $users = User::where('type', 'business')->pluck('name', 'id')->prepend(trans('global.pleaseSelect'), '');
 
         $countries = Country::pluck('name', 'id')->prepend(trans('global.pleaseSelect'), '');
 
@@ -190,5 +190,32 @@ class GaragesController extends Controller
         $media         = $model->addMediaFromRequest('upload')->toMediaCollection('ck-media');
 
         return response()->json(['id' => $media->id, 'url' => $media->getUrl()], Response::HTTP_CREATED);
+    }
+
+    public function assignForm(Request $request)
+    {
+        abort_if(Gate::denies('garage_edit'), Response::HTTP_FORBIDDEN, '403 Forbidden');
+
+        $garages = Garage::pluck('title', 'id');
+        $users = User::where('type', 'business')->pluck('name', 'id');
+        $selectedUser = $request->input('user_id', null);
+
+        return view('admin.garages.assign_garage', compact('garages', 'users', 'selectedUser'));
+    }
+
+    public function assign(Request $request)
+    {
+        abort_if(Gate::denies('garage_edit'), Response::HTTP_FORBIDDEN, '403 Forbidden');
+
+        $request->validate([
+            'garage_id' => 'required|exists:garages,id',
+            'user_id' => 'required|exists:users,id',
+        ]);
+
+        $garage = Garage::findOrFail($request->garage_id);
+        $garage->user_id = $request->user_id;
+        $garage->save();
+
+        return redirect()->route('admin.garages.index')->with('message', 'Garage assigned successfully');
     }
 }

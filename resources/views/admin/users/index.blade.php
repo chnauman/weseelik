@@ -92,6 +92,13 @@
                                     </form>
                                 @endcan
 
+                                @if($user->type === 'business')
+                                    @can('garage_edit')
+                                        <a class="btn btn-xs btn-success" href="{{ route('admin.garages.assignForm', ['user_id' => $user->id]) }}">
+                                            {{ trans('global.assign') }} {{ trans('cruds.garage.title_singular') }}
+                                        </a>
+                                    @endcan
+                                @endif
                             </td>
 
                         </tr>

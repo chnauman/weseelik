@@ -46,6 +46,10 @@ Route::group(['prefix' => 'v1', 'as' => 'api.', 'namespace' => 'Api\V1\Admin'], 
         Route::get('garages/is-blocked', 'UserBlockApiController@isBlocked')->name('garages.isBlocked');
 
         Route::get('garages/by-user', 'GaragesApiController@getUserGarages')->name('garages.getUserGarages');
+
+        Route::post('/update-user-details', [AuthController::class, 'updateUserDetails']);
+        Route::get('/user-profile', [AuthController::class, 'getUserProfile']);
+        
     });
     Route::apiResource('garages', 'GaragesApiController');
 
@@ -74,6 +78,9 @@ Route::group(['prefix' => 'v1', 'as' => 'api.', 'namespace' => 'Api\V1\Admin'], 
     Route::apiResource('messages', 'MessageApiController');
 
     // Booking
+    Route::middleware('auth:sanctum')->group(function () {
+        Route::post('bookings/create', 'BookingApiController@createBooking')->name('bookings.createBooking');
+    });
     Route::apiResource('bookings', 'BookingApiController');
 
     // Category

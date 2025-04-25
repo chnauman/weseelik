@@ -8,6 +8,7 @@ use App\Http\Requests\MassDestroyVehicleBrandRequest;
 use App\Http\Requests\StoreVehicleBrandRequest;
 use App\Http\Requests\UpdateVehicleBrandRequest;
 use App\Models\VehicleBrand;
+use App\Models\Tag;
 use Gate;
 use Illuminate\Http\Request;
 use Spatie\MediaLibrary\MediaCollections\Models\Media;
@@ -21,7 +22,7 @@ class VehicleBrandController extends Controller
     {
         abort_if(Gate::denies('vehicle_brand_access'), Response::HTTP_FORBIDDEN, '403 Forbidden');
 
-        $vehicleBrands = VehicleBrand::with(['media'])->get();
+        $vehicleBrands = VehicleBrand::with(['media', 'tag'])->get();
 
         return view('admin.vehicleBrands.index', compact('vehicleBrands'));
     }
@@ -30,7 +31,9 @@ class VehicleBrandController extends Controller
     {
         abort_if(Gate::denies('vehicle_brand_create'), Response::HTTP_FORBIDDEN, '403 Forbidden');
 
-        return view('admin.vehicleBrands.create');
+        $tags = Tag::pluck('title', 'id')->prepend(trans('global.pleaseSelect'), '');
+
+        return view('admin.vehicleBrands.create', compact('tags'));
     }
 
     public function store(StoreVehicleBrandRequest $request)
@@ -52,7 +55,9 @@ class VehicleBrandController extends Controller
     {
         abort_if(Gate::denies('vehicle_brand_edit'), Response::HTTP_FORBIDDEN, '403 Forbidden');
 
-        return view('admin.vehicleBrands.edit', compact('vehicleBrand'));
+        $tags = Tag::pluck('title', 'id')->prepend(trans('global.pleaseSelect'), '');
+
+        return view('admin.vehicleBrands.edit', compact('vehicleBrand', 'tags'));
     }
 
     public function update(UpdateVehicleBrandRequest $request, VehicleBrand $vehicleBrand)

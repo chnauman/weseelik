@@ -65,13 +65,4 @@ class Booking extends Model
         return $this->belongsTo(User::class, 'garage_id');
     }
 
-    public function getAppointmentTimeAttribute($value)
-    {
-        return $value ? Carbon::createFromFormat('Y-m-d H:i:s', $value)->format(config('panel.date_format') . ' ' . config('panel.time_format')) : null;
-    }
-
-    public function setAppointmentTimeAttribute($value)
-    {
-        $this->attributes['appointment_time'] = $value ? Carbon::createFromFormat(config('panel.date_format') . ' ' . config('panel.time_format'), $value)->format('Y-m-d H:i:s') : null;
-    }
 }

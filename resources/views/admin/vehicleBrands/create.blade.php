@@ -20,6 +20,20 @@
                 <span class="help-block">{{ trans('cruds.vehicleBrand.fields.title_helper') }}</span>
             </div>
             <div class="form-group">
+                <label for="tag_id">{{ trans('cruds.vehicleBrand.fields.tag') }}</label>
+                <select class="form-control select2 {{ $errors->has('tag_id') ? 'is-invalid' : '' }}" name="tag_id" id="tag_id">
+                    @foreach($tags as $id => $tag)
+                        <option value="{{ $id }}" {{ old('tag_id') == $id ? 'selected' : '' }}>{{ $tag }}</option>
+                    @endforeach
+                </select>
+                @if($errors->has('tag_id'))
+                    <div class="invalid-feedback">
+                        {{ $errors->first('tag_id') }}
+                    </div>
+                @endif
+                <span class="help-block">{{ trans('cruds.vehicleBrand.fields.tag_helper') }}</span>
+            </div>
+            <div class="form-group">
                 <label class="required" for="logo">{{ trans('cruds.vehicleBrand.fields.logo') }}</label>
                 <div class="needsclick dropzone {{ $errors->has('logo') ? 'is-invalid' : '' }}" id="logo-dropzone">
                 </div>

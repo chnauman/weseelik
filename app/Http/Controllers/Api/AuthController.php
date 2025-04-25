@@ -100,37 +100,75 @@ class AuthController extends Controller
      */
     public function register(Request $request)
     {
-        $request->validate([
-            'name' => 'required|string|max:255',
-            'email' => 'required|string|email|max:255|unique:users',
-            'password' => 'required|string|min:8|confirmed',
-            'device_name' => 'nullable|string',
-        ]);
+        try {
+            $validator = validator($request->all(), [
+                'name' => 'required|string|max:255',
+                'email' => 'required|string|email|max:255|unique:users',
+                'phone_number' => 'required|string',
+                'password' => 'required|string|min:8',
+                'device_name' => 'nullable|string',
+            ]);
 
-        $user = User::create([
-            'name' => $request->name,
-            'email' => $request->email,
-            'password' => Hash::make($request->password),
-        ]);
+            if ($validator->fails()) {
+                $errors = $validator->errors();
+                
+                // Check specifically for duplicate email
+                if ($errors->has('email') && str_contains($errors->first('email'), 'taken')) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'The email address already exists',
+                        'error_code' => 'duplicate_email'
+                    ], 200);
+                }
+                
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Validation failed',
+                    'errors' => $errors
+                ], 422);
+            }
 
-        // Attach default role if needed
-        // $user->roles()->attach(Role::where('title', 'User')->first());
+            // Create the user
+            $user = User::create([
+                'name' => $request->name,
+                'email' => $request->email,
+                'password' => Hash::make($request->password),
+            ]);
 
-        $deviceName = $request->device_name ?? 'mobile';
-        $token = $user->createToken($deviceName)->plainTextToken;
+            // Create user details with phone number
+            $user->detail()->create([
+                'phone_number' => $request->phone_number,
+            ]);
 
-        return response()->json([
-            'success' => true,
-            'message' => 'User successfully registered',
-            'user' => [
-                'id' => $user->id,
-                'name' => $user->name,
-                'email' => $user->email,
-                'created_at' => $user->created_at,
-            ],
-            'token' => $token,
-            'token_type' => 'Bearer',
-        ], 201);
+            // Attach default role if needed
+            // $user->roles()->attach(Role::where('title', 'User')->first());
+
+            $deviceName = $request->device_name ?? 'mobile';
+            $token = $user->createToken($deviceName)->plainTextToken;
+
+            return response()->json([
+                'success' => true,
+                'message' => 'User successfully registered',
+                'user_id' => $user->id,
+                'token' => $token,
+                'token_type' => 'Bearer',
+            ], 201);
+        } catch (\Illuminate\Database\QueryException $e) {
+            // Catch unique constraint violation for email
+            if ($e->errorInfo[1] == 1062) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'The email address already exists',
+                    'error_code' => 'duplicate_email'
+                ], 200);
+            }
+            
+            return response()->json([
+                'success' => false,
+                'message' => 'Registration failed',
+                'error' => $e->getMessage()
+            ], 500);
+        }
     }
 
     /**
@@ -184,5 +222,131 @@ class AuthController extends Controller
         return $status === Password::PASSWORD_RESET
             ? response()->json(['success' => true, 'message' => __($status)])
             : response()->json(['success' => false, 'message' => __($status)], 400);
+    }
+
+    /**
+     * Update user details
+     *
+     * @param  \Illuminate\Http\Request  $request
+     * @return \Illuminate\Http\JsonResponse
+     */
+    public function updateUserDetails(Request $request)
+    {
+        // Validate request
+        $validator = validator($request->all(), [
+            'phone_number' => 'sometimes|string',
+            'age' => 'sometimes|integer',
+            'address' => 'sometimes|string',
+            'latitude' => 'sometimes|string',
+            'longitude' => 'sometimes|string',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Validation failed',
+                'errors' => $validator->errors()
+            ], 422);
+        }
+
+        // Check if at least one field is provided
+        if (!$request->has(['phone_number', 'age', 'address', 'latitude', 'longitude'])) {
+            return response()->json([
+                'success' => false,
+                'message' => 'At least one field must be provided'
+            ], 422);
+        }
+
+        try {
+            $user = $request->user();
+            $userDetail = $user->detail;
+
+            // Create user detail if it doesn't exist
+            if (!$userDetail) {
+                $userDetail = $user->detail()->create([]);
+            }
+
+            // Update only provided fields
+            $updateData = [];
+            
+            if ($request->has('phone_number')) {
+                $updateData['phone_number'] = $request->phone_number;
+            }
+            
+            if ($request->has('age')) {
+                $updateData['age'] = $request->age;
+            }
+            
+            if ($request->has('address')) {
+                $updateData['address'] = $request->address;
+            }
+            
+            if ($request->has('latitude')) {
+                $updateData['latitude'] = $request->latitude;
+            }
+            
+            if ($request->has('longitude')) {
+                $updateData['longitude'] = $request->longitude;
+            }
+
+            // Update the user details
+            $userDetail->update($updateData);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'User details updated successfully',
+                'user_details' => $userDetail
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to update user details',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Get complete user profile
+     *
+     * @param  \Illuminate\Http\Request  $request
+     * @return \Illuminate\Http\JsonResponse
+     */
+    public function getUserProfile(Request $request)
+    {
+        try {
+            $user = $request->user();
+            
+            // Load user details relation if it exists
+            $user->load('detail');
+            
+            $profileData = [
+                'id' => $user->id,
+                'name' => $user->name,
+                'email' => $user->email,
+                'created_at' => $user->created_at,
+                'updated_at' => $user->updated_at
+            ];
+            
+            // Add user details if they exist
+            if ($user->detail) {
+                $profileData['phone_number'] = $user->detail->phone_number;
+                $profileData['age'] = $user->detail->age;
+                $profileData['address'] = $user->detail->address;
+                $profileData['latitude'] = $user->detail->latitude;
+                $profileData['longitude'] = $user->detail->longitude;
+            }
+            
+            return response()->json([
+                'success' => true,
+                'profile' => $profileData
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to retrieve user profile',
+                'error' => $e->getMessage()
+            ], 500);
+        }
     }
 }

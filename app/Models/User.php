@@ -101,4 +101,38 @@ class User extends Authenticatable
             ->withPivot('reason')
             ->withTimestamps();
     }
+
+    /**
+     * Get the user's details.
+     */
+    public function detail()
+    {
+        return $this->hasOne(UserDetail::class);
+    }
+
+    /**
+     * Get the user's primary vehicle brand.
+     */
+    public function primaryVehicleBrand()
+    {
+        return $this->belongsTo(VehicleBrand::class, 'primary_vehicle_brand_id');
+    }
+
+    /**
+     * Get all the user's vehicle brands.
+     */
+    public function vehicleBrands()
+    {
+        return $this->belongsToMany(VehicleBrand::class, 'user_vehicle_brands')
+            ->withPivot('is_primary', 'model', 'year', 'color', 'license_plate')
+            ->withTimestamps();
+    }
+
+    /**
+     * Get all the user's vehicle relationships.
+     */
+    public function userVehicleBrands()
+    {
+        return $this->hasMany(UserVehicleBrand::class);
+    }
 }

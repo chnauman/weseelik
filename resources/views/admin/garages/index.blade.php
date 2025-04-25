@@ -6,6 +6,11 @@
             <a class="btn btn-success" href="{{ route('admin.garages.create') }}">
                 {{ trans('global.add') }} {{ trans('cruds.garage.title_singular') }}
             </a>
+            @can('garage_edit')
+            <a class="btn btn-info" href="{{ route('admin.garages.assignForm') }}">
+                {{ trans('global.assign') }} {{ trans('cruds.garage.title_singular') }}
+            </a>
+            @endcan
         </div>
     </div>
 @endcan

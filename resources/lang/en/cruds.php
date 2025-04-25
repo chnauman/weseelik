@@ -213,6 +213,8 @@ return [
             'id_helper'         => ' ',
             'title'             => 'Title',
             'title_helper'      => ' ',
+            'tag'               => 'Tag',
+            'tag_helper'        => ' ',
             'logo'              => 'Logo',
             'logo_helper'       => ' ',
             'created_at'        => 'Created at',
