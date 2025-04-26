@@ -11,8 +11,8 @@
             @method('PUT')
             @csrf
             <div class="form-group">
-                <label class="required" for="user_id">{{ trans('cruds.garage.fields.user') }}</label>
-                <select class="form-control select2 {{ $errors->has('user') ? 'is-invalid' : '' }}" name="user_id" id="user_id" required>
+                <label for="user_id">{{ trans('cruds.garage.fields.user') }}</label>
+                <select class="form-control select2 {{ $errors->has('user') ? 'is-invalid' : '' }}" name="user_id" id="user_id">
                     @foreach($users as $id => $entry)
                         <option value="{{ $id }}" {{ (old('user_id') ? old('user_id') : $garage->user->id ?? '') == $id ? 'selected' : '' }}>{{ $entry }}</option>
                     @endforeach
@@ -134,7 +134,7 @@
                 <span class="help-block">{{ trans('cruds.garage.fields.status_helper') }}</span>
             </div>
             <div class="form-group">
-                <label class="required" for="logo">{{ trans('cruds.garage.fields.logo') }}</label>
+                <label for="logo">{{ trans('cruds.garage.fields.logo') }}</label>
                 <div class="needsclick dropzone {{ $errors->has('logo') ? 'is-invalid' : '' }}" id="logo-dropzone">
                 </div>
                 @if($errors->has('logo'))
@@ -145,7 +145,7 @@
                 <span class="help-block">{{ trans('cruds.garage.fields.logo_helper') }}</span>
             </div>
             <div class="form-group">
-                <label class="required" for="storefront_image">{{ trans('cruds.garage.fields.storefront_image') }}</label>
+                <label for="storefront_image">{{ trans('cruds.garage.fields.storefront_image') }}</label>
                 <div class="needsclick dropzone {{ $errors->has('storefront_image') ? 'is-invalid' : '' }}" id="storefront_image-dropzone">
                 </div>
                 @if($errors->has('storefront_image'))
@@ -203,12 +203,12 @@
                 <span class="help-block">{{ trans('cruds.garage.fields.language_helper') }}</span>
             </div>
             <div class="form-group">
-                <label class="required" for="specializations">{{ trans('cruds.garage.fields.specialization') }}</label>
+                <label for="specializations">{{ trans('cruds.garage.fields.specialization') }}</label>
                 <div style="padding-bottom: 4px">
                     <span class="btn btn-info btn-xs select-all" style="border-radius: 0">{{ trans('global.select_all') }}</span>
                     <span class="btn btn-info btn-xs deselect-all" style="border-radius: 0">{{ trans('global.deselect_all') }}</span>
                 </div>
-                <select class="form-control select2 {{ $errors->has('specializations') ? 'is-invalid' : '' }}" name="specializations[]" id="specializations" multiple required>
+                <select class="form-control select2 {{ $errors->has('specializations') ? 'is-invalid' : '' }}" name="specializations[]" id="specializations" multiple>
                     @foreach($specializations as $id => $specialization)
                         <option value="{{ $id }}" {{ (in_array($id, old('specializations', [])) || $garage->specializations->contains($id)) ? 'selected' : '' }}>{{ $specialization }}</option>
                     @endforeach
@@ -239,12 +239,12 @@
                 <span class="help-block">{{ trans('cruds.garage.fields.services_helper') }}</span>
             </div>
             <div class="form-group">
-                <label class="required" for="categories">{{ trans('cruds.garage.fields.category') }}</label>
+                <label for="categories">{{ trans('cruds.garage.fields.category') }}</label>
                 <div style="padding-bottom: 4px">
                     <span class="btn btn-info btn-xs select-all" style="border-radius: 0">{{ trans('global.select_all') }}</span>
                     <span class="btn btn-info btn-xs deselect-all" style="border-radius: 0">{{ trans('global.deselect_all') }}</span>
                 </div>
-                <select class="form-control select2 {{ $errors->has('categories') ? 'is-invalid' : '' }}" name="categories[]" id="categories" multiple required>
+                <select class="form-control select2 {{ $errors->has('categories') ? 'is-invalid' : '' }}" name="categories[]" id="categories" multiple>
                     @foreach($categories as $id => $category)
                         <option value="{{ $id }}" {{ (in_array($id, old('categories', [])) || $garage->categories->contains($id)) ? 'selected' : '' }}>{{ $category }}</option>
                     @endforeach

@@ -18,7 +18,7 @@ class UpdateGarageRequest extends FormRequest
     {
         return [
             'user_id' => [
-                'required',
+                'nullable',
                 'integer',
             ],
             'title' => [
@@ -61,10 +61,10 @@ class UpdateGarageRequest extends FormRequest
                 'required',
             ],
             'logo' => [
-                'required',
+                'nullable',
             ],
             'storefront_image' => [
-                'required',
+                'nullable',
             ],
             'gallery' => [
                 'array',
@@ -87,7 +87,7 @@ class UpdateGarageRequest extends FormRequest
                 'integer',
             ],
             'specializations' => [
-                'required',
+                'nullable',
                 'array',
             ],
             'services.*' => [
@@ -101,7 +101,7 @@ class UpdateGarageRequest extends FormRequest
                 'integer',
             ],
             'categories' => [
-                'required',
+                'nullable',
                 'array',
             ],
             'registered_by' => [
