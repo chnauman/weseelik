@@ -28,7 +28,10 @@ class GaragesApiController extends Controller
 
     public function store(StoreGarageRequest $request)
     {
-        $garage = Garage::create($request->all());
+        $data = $request->all();
+        $data['surveyor_id'] = auth()->id();
+        
+        $garage = Garage::create($data);
 
         $garage->tags()->sync($request->input('tags', []));
         $garage->languages()->sync($request->input('languages', []));

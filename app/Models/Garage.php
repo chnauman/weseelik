@@ -40,6 +40,7 @@ class Garage extends Model implements HasMedia
 
     protected $fillable = [
         'user_id',
+        'surveyor_id',
         'title',
         'description',
         'service_description',
@@ -56,7 +57,10 @@ class Garage extends Model implements HasMedia
         'updated_at',
         'deleted_at',
         'no_of_visits',
-        'no_of_likes'
+        'no_of_likes',
+        'governate',
+        'area',
+        'block'
     ];
 
     protected function serializeDate(DateTimeInterface $date)
@@ -73,6 +77,11 @@ class Garage extends Model implements HasMedia
     public function user()
     {
         return $this->belongsTo(User::class, 'user_id');
+    }
+
+    public function surveyor()
+    {
+        return $this->belongsTo(User::class, 'surveyor_id');
     }
 
     public function country()
