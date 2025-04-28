@@ -38,13 +38,13 @@ class AuthController extends Controller
 
         // Get authenticated user
         $user = User::where('email', $request->email)->first();
-        
+
         // Use device name from request or default to 'mobile'
         $deviceName = $request->device_name ?? 'mobile';
 
         // Revoke existing tokens if needed
         // $user->tokens()->where('name', $deviceName)->delete();
-        
+
         // Create new token
         $token = $user->createToken($deviceName)->plainTextToken;
 
@@ -111,7 +111,7 @@ class AuthController extends Controller
 
             if ($validator->fails()) {
                 $errors = $validator->errors();
-                
+
                 // Check specifically for duplicate email
                 if ($errors->has('email') && str_contains($errors->first('email'), 'taken')) {
                     return response()->json([
@@ -120,7 +120,7 @@ class AuthController extends Controller
                         'error_code' => 'duplicate_email'
                     ], 200);
                 }
-                
+
                 return response()->json([
                     'success' => false,
                     'message' => 'Validation failed',
@@ -162,7 +162,7 @@ class AuthController extends Controller
                     'error_code' => 'duplicate_email'
                 ], 200);
             }
-            
+
             return response()->json([
                 'success' => false,
                 'message' => 'Registration failed',
@@ -250,12 +250,14 @@ class AuthController extends Controller
         }
 
         // Check if at least one field is provided
+        /*
         if (!$request->has(['phone_number', 'age', 'address', 'latitude', 'longitude'])) {
             return response()->json([
                 'success' => false,
                 'message' => 'At least one field must be provided'
             ], 422);
         }
+        */
 
         try {
             $user = $request->user();
@@ -268,23 +270,23 @@ class AuthController extends Controller
 
             // Update only provided fields
             $updateData = [];
-            
+
             if ($request->has('phone_number')) {
                 $updateData['phone_number'] = $request->phone_number;
             }
-            
+
             if ($request->has('age')) {
                 $updateData['age'] = $request->age;
             }
-            
+
             if ($request->has('address')) {
                 $updateData['address'] = $request->address;
             }
-            
+
             if ($request->has('latitude')) {
                 $updateData['latitude'] = $request->latitude;
             }
-            
+
             if ($request->has('longitude')) {
                 $updateData['longitude'] = $request->longitude;
             }
@@ -316,10 +318,10 @@ class AuthController extends Controller
     {
         try {
             $user = $request->user();
-            
+
             // Load user details relation if it exists
             $user->load('detail');
-            
+
             $profileData = [
                 'id' => $user->id,
                 'name' => $user->name,
@@ -327,7 +329,7 @@ class AuthController extends Controller
                 'created_at' => $user->created_at,
                 'updated_at' => $user->updated_at
             ];
-            
+
             // Add user details if they exist
             if ($user->detail) {
                 $profileData['phone_number'] = $user->detail->phone_number;
@@ -336,7 +338,7 @@ class AuthController extends Controller
                 $profileData['latitude'] = $user->detail->latitude;
                 $profileData['longitude'] = $user->detail->longitude;
             }
-            
+
             return response()->json([
                 'success' => true,
                 'profile' => $profileData
