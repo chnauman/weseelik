@@ -90,6 +90,22 @@ class StoreGarageRequest extends FormRequest
                 'required',
                 'array',
             ],
+            'governate' => [
+                'string',
+                'nullable',
+            ],
+            'area' => [
+                'string',
+                'nullable',
+            ],
+            'block' => [
+                'string',
+                'nullable',
+            ],
+            'maps_share_link' => [
+                'string',
+                'nullable',
+            ],
             'services.*' => [
                 'integer',
             ],

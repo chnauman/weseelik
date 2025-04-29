@@ -272,6 +272,46 @@
                 <span class="help-block">{{ trans('cruds.garage.fields.registered_by_helper') }}</span>
             </div>
             <div class="form-group">
+                <label for="governate">{{ trans('cruds.garage.fields.governate') }}</label>
+                <input class="form-control {{ $errors->has('governate') ? 'is-invalid' : '' }}" type="text" name="governate" id="governate" value="{{ old('governate', $garage->governate) }}">
+                @if($errors->has('governate'))
+                    <div class="invalid-feedback">
+                        {{ $errors->first('governate') }}
+                    </div>
+                @endif
+                <span class="help-block">{{ trans('cruds.garage.fields.governate_helper') }}</span>
+            </div>
+            <div class="form-group">
+                <label for="area">{{ trans('cruds.garage.fields.area') }}</label>
+                <input class="form-control {{ $errors->has('area') ? 'is-invalid' : '' }}" type="text" name="area" id="area" value="{{ old('area', $garage->area) }}">
+                @if($errors->has('area'))
+                    <div class="invalid-feedback">
+                        {{ $errors->first('area') }}
+                    </div>
+                @endif
+                <span class="help-block">{{ trans('cruds.garage.fields.area_helper') }}</span>
+            </div>
+            <div class="form-group">
+                <label for="block">{{ trans('cruds.garage.fields.block') }}</label>
+                <input class="form-control {{ $errors->has('block') ? 'is-invalid' : '' }}" type="text" name="block" id="block" value="{{ old('block', $garage->block) }}">
+                @if($errors->has('block'))
+                    <div class="invalid-feedback">
+                        {{ $errors->first('block') }}
+                    </div>
+                @endif
+                <span class="help-block">{{ trans('cruds.garage.fields.block_helper') }}</span>
+            </div>
+            <div class="form-group">
+                <label for="maps_share_link">{{ trans('cruds.garage.fields.maps_share_link') }}</label>
+                <input class="form-control {{ $errors->has('maps_share_link') ? 'is-invalid' : '' }}" type="text" name="maps_share_link" id="maps_share_link" value="{{ old('maps_share_link', $garage->maps_share_link) }}">
+                @if($errors->has('maps_share_link'))
+                    <div class="invalid-feedback">
+                        {{ $errors->first('maps_share_link') }}
+                    </div>
+                @endif
+                <span class="help-block">{{ trans('cruds.garage.fields.maps_share_link_helper') }}</span>
+            </div>
+            <div class="form-group">
                 <button class="btn btn-danger" type="submit">
                     {{ trans('global.save') }}
                 </button>

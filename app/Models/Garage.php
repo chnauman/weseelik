@@ -60,7 +60,8 @@ class Garage extends Model implements HasMedia
         'no_of_likes',
         'governate',
         'area',
-        'block'
+        'block',
+        'maps_share_link'
     ];
 
     protected function serializeDate(DateTimeInterface $date)
