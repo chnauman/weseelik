@@ -62,7 +62,7 @@ class Booking extends Model
 
     public function garage()
     {
-        return $this->belongsTo(User::class, 'garage_id');
+        return $this->belongsTo(Garage::class, 'garage_id');
     }
 
 }
