@@ -7,6 +7,7 @@ use App\Http\Requests\StoreBookingRequest;
 use App\Http\Requests\UpdateBookingRequest;
 use App\Http\Resources\Admin\BookingResource;
 use App\Models\Booking;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
@@ -17,8 +18,9 @@ class BookingApiController extends Controller
     public function index()
     {
         //abort_if(Gate::denies('booking_access'), Response::HTTP_FORBIDDEN, '403 Forbidden');
+        $user_id = Auth::id();
 
-        return new BookingResource(Booking::with(['user', 'garage'])->get());
+        return new BookingResource(Booking::with(['user', 'garage'])->where('user_id', $user_id)->orderByDesc('id')->get());
     }
 
     public function store(StoreBookingRequest $request)
@@ -79,7 +81,7 @@ class BookingApiController extends Controller
         $booking->status = 'pending';
         $booking->processing_status = 'n/a';
         $booking->save();
-        
+
         // Now create the actual unique reference using the database ID
         $referenceNumber = 'wslk_' . $request->garage_id . '_' . rand(100000, 999999) . '_' . $booking->id;
         $booking->reference_no = $referenceNumber;

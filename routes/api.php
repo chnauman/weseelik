@@ -38,7 +38,7 @@ Route::group(['prefix' => 'v1', 'as' => 'api.', 'namespace' => 'Api\V1\Admin'], 
     Route::post('garages/media', 'GaragesApiController@storeMedia')->name('garages.storeMedia');
     Route::get('garages/top-visited', 'GaragesApiController@topVisited')->name('garages.topVisited');   // by user
     Route::get('garages/nearby', 'GaragesApiController@nearby')->name('garages.nearby');                // by user
-    
+
     Route::middleware('auth:sanctum')->group(function () {
         // Garages - Protected Routes
         Route::get('garages/get-blocked-garages', 'UserBlockApiController@index')->name('garages.index');
@@ -52,7 +52,7 @@ Route::group(['prefix' => 'v1', 'as' => 'api.', 'namespace' => 'Api\V1\Admin'], 
         Route::get('/user-profile', [AuthController::class, 'getUserProfile']);
         Route::apiResource('garages', 'GaragesApiController');
     });
-    
+
     // Vehicle Brand
     Route::post('vehicle-brands/media', 'VehicleBrandApiController@storeMedia')->name('vehicle-brands.storeMedia');
     Route::apiResource('vehicle-brands', 'VehicleBrandApiController');
@@ -80,8 +80,8 @@ Route::group(['prefix' => 'v1', 'as' => 'api.', 'namespace' => 'Api\V1\Admin'], 
     // Booking
     Route::middleware('auth:sanctum')->group(function () {
         Route::post('bookings/create', 'BookingApiController@createBooking')->name('bookings.createBooking');
+        Route::apiResource('bookings', 'BookingApiController');
     });
-    Route::apiResource('bookings', 'BookingApiController');
 
     // Category
     Route::apiResource('categories', 'CategoryApiController');
