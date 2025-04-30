@@ -277,6 +277,10 @@ class AuthController extends Controller
                 $updateData['phone_number'] = $request->phone_number;
             }
 
+            if ($request->has('brand_id')) {
+                $user->vehicleBrands()->sync($request->input('brand_id', []));
+            }
+
             if ($request->has('age')) {
                 $updateData['age'] = $request->age;
             }
