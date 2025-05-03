@@ -140,7 +140,7 @@ class AuthController extends Controller
                 'phone_number' => $request->phone_number,
             ]);
 
-            $user->vehicleBrands()->sync($request->input('brand_id', []));
+            // $user->vehicleBrands()->sync($request->input('brand_id', []));
 
             // Attach default role if needed
             // $user->roles()->attach(Role::where('title', 'User')->first());

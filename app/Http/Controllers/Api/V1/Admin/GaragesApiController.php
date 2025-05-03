@@ -30,7 +30,7 @@ class GaragesApiController extends Controller
     {
         $data = $request->all();
         $data['surveyor_id'] = auth()->id();
-        
+
         $garage = Garage::create($data);
 
         $garage->tags()->sync($request->input('tags', []));
@@ -204,13 +204,16 @@ class GaragesApiController extends Controller
         // Validate limit parameter
         $request->validate([
             'limit' => 'nullable|integer|min:1|max:100',
+            'offset' => 'nullable|integer',
         ]);
 
         // Get the limit from request or use default value of 10
         $limit = $request->input('limit', 10);
+        $offset = $request->input('offset', 0);
 
         // Query the top visited garages
         $topGarages = Garage::orderBy('no_of_visits', 'desc')
+            ->offset($offset)
             ->limit($limit)
             ->with(['user', 'country', 'tags', 'languages', 'specializations', 'services', 'categories', 'work_shifts', 'contacts'])
             ->get();
@@ -231,6 +234,7 @@ class GaragesApiController extends Controller
             'latitude' => 'required|numeric',
             'longitude' => 'required|numeric',
             'limit' => 'nullable|integer|min:1|max:100',
+            'offset' => 'nullable|integer',
             'radius' => 'nullable|numeric|min:0.1|max:500', // radius in kilometers
         ]);
 
@@ -238,6 +242,7 @@ class GaragesApiController extends Controller
         $latitude = $request->input('latitude');
         $longitude = $request->input('longitude');
         $limit = $request->input('limit', 10);
+        $offset = $request->input('offset', 0);
         $radius = $request->input('radius', 10); // Default radius is 10 km
 
         // Use Haversine formula to calculate distance
@@ -264,6 +269,7 @@ class GaragesApiController extends Controller
             ])
             ->having('distance', '<=', $radius)
             ->orderBy('distance')
+            ->offset($offset)
             ->limit($limit)
             ->get();
 
@@ -308,9 +314,9 @@ class GaragesApiController extends Controller
 
         // Get garages with favorite information, excluding blocked garages
         $garages = Garage::select([
-                'garages.id', 
-                'garages.title', 
-                'garages.description', 
+                'garages.id',
+                'garages.title',
+                'garages.description',
                 'garages.contact_no',
                 'garages.latitude',
                 'garages.longitude',
