@@ -63,12 +63,16 @@ class GaragesApiController extends Controller
 
         // Handle logo upload
         if ($request->hasFile('logo')) {
-            $garage->addMedia($request->file('logo'))->toMediaCollection('logo');
+            foreach ($request->file('logo') as $file) {
+                $garage->addMedia($file)->toMediaCollection('logo');
+            }
         }
 
         // Handle storefront image upload
         if ($request->hasFile('storefront_image')) {
-            $garage->addMedia($request->file('storefront_image'))->toMediaCollection('storefront_image');
+            foreach ($request->file('storefront_image') as $file) {
+                $garage->addMedia($file)->toMediaCollection('storefront_image');
+            }
         }
 
         // Handle gallery upload

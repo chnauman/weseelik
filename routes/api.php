@@ -51,7 +51,7 @@ Route::group(['prefix' => 'v1', 'as' => 'api.', 'namespace' => 'Api\V1\Admin'], 
 
         Route::post('/update-user-details', [AuthController::class, 'updateUserDetails']);
         Route::get('/user-profile', [AuthController::class, 'getUserProfile']);
-        Route::apiResource('garages', 'GaragesApiController');
+        Route::apiResource('garages', 'GaragesApiController')->except(['show']);
     });
 
     // Vehicle Brand
