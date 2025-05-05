@@ -65,6 +65,14 @@ class StoreGarageRequest extends FormRequest
             'status' => [
                 'required',
             ],
+            'home_service' => [
+                'boolean',
+                'nullable',
+            ],
+            'pickup_service' => [
+                'boolean',
+                'nullable',
+            ],
             /*
             'logo' => [
                 'required',

@@ -61,7 +61,9 @@ class Garage extends Model implements HasMedia
         'governate',
         'area',
         'block',
-        'maps_share_link'
+        'maps_share_link',
+        'home_service',
+        'pickup_service'
     ];
 
     protected function serializeDate(DateTimeInterface $date)
