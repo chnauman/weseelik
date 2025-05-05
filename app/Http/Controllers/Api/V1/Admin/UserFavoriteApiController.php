@@ -67,7 +67,7 @@ class UserFavoriteApiController extends Controller
      * @param  \Illuminate\Http\Request  $request
      * @return \Illuminate\Http\JsonResponse
      */
-    public function addToFavorites(Request $request)
+    public function toggleFavorites(Request $request)
     {
         // Validate request
         $request->validate([
@@ -83,10 +83,13 @@ class UserFavoriteApiController extends Controller
             ->first();
 
         if ($existingFavorite) {
+            // Remove from favorites
+            $existingFavorite->delete();
+            
             return response()->json([
-                'success' => false,
-                'message' => 'This garage is already in your favorites',
-                'data' => new UserFavoriteResource($existingFavorite)
+                'success' => true,
+                'code' => 'removed',
+                'message' => 'Garage removed from favorites successfully'
             ]);
         }
 
@@ -98,6 +101,7 @@ class UserFavoriteApiController extends Controller
 
         return response()->json([
             'success' => true,
+            'code' => 'added',
             'message' => 'Garage added to favorites successfully',
             'data' => new UserFavoriteResource($userFavorite)
         ], Response::HTTP_CREATED);
