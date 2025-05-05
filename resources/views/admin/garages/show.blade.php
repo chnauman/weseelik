@@ -116,10 +116,14 @@
                             {{ trans('cruds.garage.fields.logo') }}
                         </th>
                         <td>
-                            @if($garage->logo)
-                                <a href="{{ $garage->logo->getUrl() }}" target="_blank" style="display: inline-block">
-                                    <img src="{{ $garage->logo->getUrl('thumb') }}">
-                                </a>
+                            @if($garage->getMedia('logo')->count() > 0)
+                                <div style="display: flex; flex-wrap: wrap; gap: 10px;">
+                                    @foreach($garage->getMedia('logo') as $logo)
+                                        <a href="{{ $logo->getUrl() }}" target="_blank" style="display: inline-block">
+                                            <img src="{{ $logo->getUrl('thumb') }}" style="max-width: 100px; max-height: 100px; object-fit: contain;">
+                                        </a>
+                                    @endforeach
+                                </div>
                             @endif
                         </td>
                     </tr>
@@ -128,10 +132,14 @@
                             {{ trans('cruds.garage.fields.storefront_image') }}
                         </th>
                         <td>
-                            @if($garage->storefront_image)
-                                <a href="{{ $garage->storefront_image->getUrl() }}" target="_blank" style="display: inline-block">
-                                    <img src="{{ $garage->storefront_image->getUrl('thumb') }}">
-                                </a>
+                            @if($garage->getMedia('storefront_image')->count() > 0)
+                                <div style="display: flex; flex-wrap: wrap; gap: 10px;">
+                                    @foreach($garage->getMedia('storefront_image') as $image)
+                                        <a href="{{ $image->getUrl() }}" target="_blank" style="display: inline-block">
+                                            <img src="{{ $image->getUrl('thumb') }}" style="max-width: 200px; max-height: 200px; object-fit: contain;">
+                                        </a>
+                                    @endforeach
+                                </div>
                             @endif
                         </td>
                     </tr>
