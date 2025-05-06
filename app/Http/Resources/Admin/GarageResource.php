@@ -9,7 +9,9 @@ class GarageResource extends JsonResource
     public function toArray($request)
     {
         $data = parent::toArray($request);
-        
+
+        // Ensure the resource is an individual model, not a collection
+        if ($this->resource instanceof \App\Models\Garage) {
         // Get all logos
         $logos = $this->getMedia('logo')->map(function ($media) {
             return [
@@ -48,6 +50,7 @@ class GarageResource extends JsonResource
         // Remove the old single media attributes
         unset($data['logo']);
         unset($data['storefront_image']);
+        }
 
         return $data;
     }
