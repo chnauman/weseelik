@@ -78,33 +78,46 @@ class UserFavoriteApiController extends Controller
         $user = $request->user();
 
         // Check if this garage is already in the user's favorites
-        $existingFavorite = UserFavorite::where('user_id', $user->id)
+        $existingFavorite = UserFavorite::withTrashed()
+        ->where('user_id', $user->id)
             ->where('garage_id', $request->garage_id)
             ->first();
 
         if ($existingFavorite) {
             // Remove from favorites
-            $existingFavorite->delete();
+            if ($existingFavorite->trashed()) {
+                // If it was previously blocked and deleted, restore it
+                $existingFavorite->restore();
+                
+                return response()->json([
+                    'success' => true,
+                    'message' => 'Garage added to favorites successfully',
+                    'data' => new UserFavoriteResource($existingFavorite)
+                ]);
+            } else {
+                $existingFavorite->delete();
             
+                return response()->json([
+                    'success' => true,
+                    'code' => 'removed',
+                    'message' => 'Garage removed from favorites successfully'
+                ]);
+            }
+            
+        } else {
+            // Create new favorite
+            $userFavorite = UserFavorite::create([
+                'user_id' => $user->id,
+                'garage_id' => $request->garage_id,
+            ]);
+
             return response()->json([
                 'success' => true,
-                'code' => 'removed',
-                'message' => 'Garage removed from favorites successfully'
-            ]);
+                'code' => 'added',
+                'message' => 'Garage added to favorites successfully',
+                'data' => new UserFavoriteResource($userFavorite)
+            ], Response::HTTP_CREATED);
         }
-
-        // Create new favorite
-        $userFavorite = UserFavorite::create([
-            'user_id' => $user->id,
-            'garage_id' => $request->garage_id,
-        ]);
-
-        return response()->json([
-            'success' => true,
-            'code' => 'added',
-            'message' => 'Garage added to favorites successfully',
-            'data' => new UserFavoriteResource($userFavorite)
-        ], Response::HTTP_CREATED);
     }
 
     /**

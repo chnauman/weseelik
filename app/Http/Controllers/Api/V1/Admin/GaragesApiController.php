@@ -216,12 +216,36 @@ class GaragesApiController extends Controller
         $offset = $request->input('offset', 0);
 
         // Query the top visited garages
-        $topGarages = Garage::orderBy('no_of_visits', 'desc')
+        $query = Garage::orderBy('no_of_visits', 'desc')
             ->offset($offset)
             ->limit($limit)
-            ->with(['user', 'country', 'tags', 'languages', 'specializations', 'services', 'categories', 'work_shifts', 'contacts'])
-            ->get();
+            ->with(['user', 'country', 'tags', 'languages', 'specializations', 'services', 'categories', 'work_shifts', 'contacts']);
 
+            // Get user if authenticated
+        $user = $request->user();
+
+        if ($user) {
+            $query->select([
+                'garages.*',
+                DB::raw('CASE WHEN user_favorites.id IS NOT NULL THEN 1 ELSE 0 END as is_favorite')
+            ])
+            ->leftJoin('user_favorites', function($join) use ($user) {
+                $join->on('garages.id', '=', 'user_favorites.garage_id')
+                     ->where('user_favorites.user_id', '=', $user->id)
+                     ->where('user_favorites.deleted_at', null);
+            });
+
+            // Exclude blocked garages
+            $query->whereNotExists(function($subquery) use ($user) {
+                $subquery->select(DB::raw(1))
+                    ->from('user_blocks')
+                    ->whereRaw('user_blocks.garage_id = garages.id')
+                    ->where('user_blocks.user_id', $user->id)
+                    ->where('user_blocks.deleted_at', null);
+            });
+        }
+
+        $topGarages = $query->get();
         return new GarageResource($topGarages);
     }
 
@@ -249,18 +273,19 @@ class GaragesApiController extends Controller
         $offset = $request->input('offset', 0);
         $radius = $request->input('radius', 10); // Default radius is 10 km
 
-        // Use Haversine formula to calculate distance
-        // This calculates the straight-line distance between two points on the Earth's surface
-        // Distance is in kilometers
-        $garages = Garage::select([
-                'id',
-                'title',
-                'description',
-                'contact_no',
-                'latitude',
-                'longitude',
-                'no_of_visits',
-                'no_of_likes',
+        // Get user if authenticated
+        $user = $request->user();
+
+        // Base query with distance calculation
+        $query = Garage::select([
+                'garages.id',
+                'garages.title',
+                'garages.description',
+                'garages.contact_no',
+                'garages.latitude',
+                'garages.longitude',
+                'garages.no_of_visits',
+                'garages.no_of_likes',
                 DB::raw("(
                     6371 * acos(
                         cos(radians($latitude)) *
@@ -270,8 +295,32 @@ class GaragesApiController extends Controller
                         sin(radians(latitude))
                     )
                 ) AS distance")
+            ]);
+
+        // If user is authenticated, add favorite and block information
+        if ($user) {
+            // Add is_favorite field
+            $query->addSelect([
+                DB::raw('CASE WHEN user_favorites.id IS NOT NULL THEN 1 ELSE 0 END as is_favorite')
             ])
-            ->having('distance', '<=', $radius)
+            ->leftJoin('user_favorites', function($join) use ($user) {
+                $join->on('garages.id', '=', 'user_favorites.garage_id')
+                     ->where('user_favorites.user_id', '=', $user->id)
+                     ->where('user_favorites.deleted_at', null);
+            });
+
+            // Exclude blocked garages
+            $query->whereNotExists(function($subquery) use ($user) {
+                $subquery->select(DB::raw(1))
+                    ->from('user_blocks')
+                    ->whereRaw('user_blocks.garage_id = garages.id')
+                    ->where('user_blocks.user_id', $user->id)
+                    ->where('user_blocks.deleted_at', null);
+            });
+        }
+
+        // Apply distance filter and ordering
+        $garages = $query->having('distance', '<=', $radius)
             ->orderBy('distance')
             ->offset($offset)
             ->limit($limit)
@@ -282,7 +331,7 @@ class GaragesApiController extends Controller
             'success' => true,
             'count' => $garages->count(),
             'data' => $garages->map(function ($garage) {
-                return [
+                $data = [
                     'id' => $garage->id,
                     'title' => $garage->title,
                     'description' => $garage->description,
@@ -296,6 +345,13 @@ class GaragesApiController extends Controller
                     'storefront_image' => $garage->storefront_image,
                     'gallery' => $garage->gallery
                 ];
+
+                // Add is_favorite if it exists
+                if (isset($garage->is_favorite)) {
+                    $data['is_favorite'] = $garage->is_favorite;
+                }
+
+                return $data;
             })
         ]);
     }

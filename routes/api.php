@@ -36,8 +36,8 @@ Route::group(['prefix' => 'v1', 'as' => 'api.', 'namespace' => 'Api\V1\Admin'], 
 
     // Garages
     Route::post('garages/media', 'GaragesApiController@storeMedia')->name('garages.storeMedia');
-    Route::get('garages/top-visited', 'GaragesApiController@topVisited')->name('garages.topVisited');   // by user
-    Route::get('garages/nearby', 'GaragesApiController@nearby')->name('garages.nearby');                // by user
+    Route::middleware('optional.auth')->get('garages/top-visited', 'GaragesApiController@topVisited')->name('garages.topVisited');   // by user
+    Route::middleware('optional.auth')->get('garages/nearby', 'GaragesApiController@nearby')->name('garages.nearby');                // by user
 
     Route::middleware('auth:sanctum')->group(function () {
         // Garages - Protected Routes
