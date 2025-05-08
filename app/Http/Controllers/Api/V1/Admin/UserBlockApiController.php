@@ -47,12 +47,25 @@ class UserBlockApiController extends Controller
         // Get the authenticated user
         $user = $request->user();
         
-        // Check if this garage is already blocked by the user
-        $existingBlock = UserBlock::where('user_id', $user->id)
+        // Check if this garage is already blocked by the user (including soft deleted)
+        $existingBlock = UserBlock::withTrashed()
+            ->where('user_id', $user->id)
             ->where('garage_id', $request->garage_id)
             ->first();
             
         if ($existingBlock) {
+            if ($existingBlock->trashed()) {
+                // If it was previously blocked and deleted, restore it
+                $existingBlock->restore();
+                $existingBlock->update(['reason' => $request->reason]);
+                
+                return response()->json([
+                    'success' => true,
+                    'message' => 'Garage blocked successfully',
+                    'data' => new UserBlockResource($existingBlock)
+                ]);
+            }
+            
             return response()->json([
                 'success' => false,
                 'message' => 'This garage is already blocked',

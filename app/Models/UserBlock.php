@@ -9,7 +9,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 
 class UserBlock extends Model
 {
-    use HasFactory, SoftDeletes;
+    use SoftDeletes, HasFactory;
 
     public $table = 'user_blocks';
 

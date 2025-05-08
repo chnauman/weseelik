@@ -38,19 +38,22 @@ Route::group(['prefix' => 'v1', 'as' => 'api.', 'namespace' => 'Api\V1\Admin'], 
     Route::post('garages/media', 'GaragesApiController@storeMedia')->name('garages.storeMedia');
     Route::get('garages/top-visited', 'GaragesApiController@topVisited')->name('garages.topVisited');   // by user
     Route::get('garages/nearby', 'GaragesApiController@nearby')->name('garages.nearby');                // by user
-    Route::get('garages/{garage}', 'GaragesApiController@show');
 
     Route::middleware('auth:sanctum')->group(function () {
         // Garages - Protected Routes
-        Route::get('garages/get-blocked-garages', 'UserBlockApiController@index')->name('garages.index');
+        Route::get('garages/get-blocked-garages', 'UserBlockApiController@index')->name('garages.get-blocked-garages');
         Route::post('garages/block', 'UserBlockApiController@blockGarage')->name('garages.block');
         Route::post('garages/unblock', 'UserBlockApiController@unblockGarage')->name('garages.unblock');
-        Route::get('garages/is-blocked', 'UserBlockApiController@isBlocked')->name('garages.isBlocked');
+        Route::post('garages/is-blocked', 'UserBlockApiController@isBlocked')->name('garages.isBlocked');
 
         Route::get('garages/by-user', 'GaragesApiController@getUserGarages')->name('garages.getUserGarages');
 
         Route::post('/update-user-details', [AuthController::class, 'updateUserDetails']);
         Route::get('/user-profile', [AuthController::class, 'getUserProfile']);
+    });
+
+    Route::get('garages/{garage}', 'GaragesApiController@show');
+    Route::middleware('auth:sanctum')->group(function () {
         Route::apiResource('garages', 'GaragesApiController')->except(['show']);
     });
 
