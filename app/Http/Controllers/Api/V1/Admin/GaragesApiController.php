@@ -420,4 +420,70 @@ class GaragesApiController extends Controller
             })
         ]);
     }
+
+    /**
+     * Search garages with filters
+     *
+     * @param  \Illuminate\Http\Request  $request
+     * @return \Illuminate\Http\JsonResponse
+     */
+    public function search(Request $request)
+    {
+        $query = $request->input('query', '');
+        $tagIds = $request->input('tags', []);
+        $serviceIds = $request->input('services', []);
+
+        $query = Garage::query()
+            ->when($query, function ($q) use ($query) {
+                $q->where(function ($q) use ($query) {
+                    $q->where('title', 'like', "%{$query}%")
+                        ->orWhere('description', 'like', "%{$query}%")
+                        ->orWhere('address', 'like', "%{$query}%")
+                        ->orWhere('service_description', 'like', "%{$query}%")
+                        ->orWhereHas('tags', function ($q) use ($query) {
+                            $q->where('title', 'like', "%{$query}%");
+                        })
+                        ->orWhereHas('services', function ($q) use ($query) {
+                            $q->where('title', 'like', "%{$query}%");
+                        });
+                });
+            })
+            ->when(!empty($tagIds), function ($q) use ($tagIds) {
+                $q->whereHas('tags', function ($q) use ($tagIds) {
+                    $q->whereIn('tags.id', $tagIds);
+                });
+            })
+            ->when(!empty($serviceIds), function ($q) use ($serviceIds) {
+                $q->whereHas('services', function ($q) use ($serviceIds) {
+                    $q->whereIn('services.id', $serviceIds);
+                });
+            })
+            ->with(['user', 'country', 'tags', 'languages', 'specializations', 'services', 'categories', 'work_shifts', 'contacts']);
+        
+        $user = $request->user();
+
+        if ($user) {
+            $query->select([
+                'garages.*',
+                DB::raw('CASE WHEN user_favorites.id IS NOT NULL THEN 1 ELSE 0 END as is_favorite')
+            ])
+            ->leftJoin('user_favorites', function($join) use ($user) {
+                $join->on('garages.id', '=', 'user_favorites.garage_id')
+                     ->where('user_favorites.user_id', '=', $user->id)
+                     ->where('user_favorites.deleted_at', null);
+            });
+
+            // Exclude blocked garages
+            $query->whereNotExists(function($subquery) use ($user) {
+                $subquery->select(DB::raw(1))
+                    ->from('user_blocks')
+                    ->whereRaw('user_blocks.garage_id = garages.id')
+                    ->where('user_blocks.user_id', $user->id)
+                    ->where('user_blocks.deleted_at', null);
+            });
+        }
+
+        $garages = $query->get();
+        return new GarageResource($garages);
+    }
 }
