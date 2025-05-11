@@ -203,6 +203,8 @@ return [
             'category_helper'            => ' ',
             'registered_by'              => 'Registered By',
             'registered_by_helper'       => ' ',
+            'surveyor'                   => 'Surveyor',
+            'surveyor_helper'            => ' ',
             'governate'                  => 'Governate',
             'governate_helper'           => ' ',
             'area'                       => 'Area',

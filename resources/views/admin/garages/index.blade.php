@@ -94,6 +94,9 @@
                             {{ trans('cruds.garage.fields.registered_by') }}
                         </th>
                         <th>
+                            {{ trans('cruds.garage.fields.surveyor') }}
+                        </th>
+                        <th>
                             &nbsp;
                         </th>
                     </tr>
@@ -191,6 +194,9 @@
                             </td>
                             <td>
                                 {{ App\Models\Garage::REGISTERED_BY_SELECT[$garage->registered_by] ?? '' }}
+                            </td>
+                            <td>
+                                {{ $garage->surveyor->name ?? '' }}
                             </td>
                             <td>
                                 @can('garage_show')
