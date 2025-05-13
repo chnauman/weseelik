@@ -108,7 +108,6 @@ class GaragesApiController extends Controller
         $user = auth()->user();
 
         if ($user) {
-            dd($user);
             $garage->load(['user', 'country', 'tags', 'languages', 'specializations', 'services', 'categories', 'work_shifts', 'contacts']);
             
             // Check if the garage is in user's favorites

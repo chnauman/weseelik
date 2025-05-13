@@ -53,7 +53,7 @@ Route::group(['prefix' => 'v1', 'as' => 'api.', 'namespace' => 'Api\V1\Admin'], 
         Route::get('/user-profile', [AuthController::class, 'getUserProfile']);
     });
 
-    Route::get('garages/{garage}', 'GaragesApiController@show');
+    Route::middleware('optional.auth')->get('garages/{garage}', 'GaragesApiController@show');
     Route::middleware('auth:sanctum')->group(function () {
         Route::apiResource('garages', 'GaragesApiController')->except(['show']);
     });

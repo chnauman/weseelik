@@ -174,4 +174,9 @@ class Garage extends Model implements HasMedia
             ->withPivot('reason')
             ->withTimestamps();
     }
+
+    public function favorites()
+    {
+        return $this->hasMany(UserFavorite::class);
+    }
 }
