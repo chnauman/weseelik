@@ -91,6 +91,7 @@ class UserFavoriteApiController extends Controller
                 
                 return response()->json([
                     'success' => true,
+                    'code' => 'added',
                     'message' => 'Garage added to favorites successfully',
                     'data' => new UserFavoriteResource($existingFavorite)
                 ]);

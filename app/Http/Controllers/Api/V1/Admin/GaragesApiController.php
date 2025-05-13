@@ -105,7 +105,23 @@ class GaragesApiController extends Controller
     {
         //abort_if(Gate::denies('garage_show'), Response::HTTP_FORBIDDEN, '403 Forbidden');
 
-        return new GarageResource($garage->load(['user', 'country', 'tags', 'languages', 'specializations', 'services', 'categories', 'work_shifts', 'contacts']));
+        $user = auth()->user();
+
+        if ($user) {
+            $garage->load(['user', 'country', 'tags', 'languages', 'specializations', 'services', 'categories', 'work_shifts', 'contacts']);
+            
+            // Check if the garage is in user's favorites
+            $isFavorite = $garage->favorites()
+                ->where('user_id', $user->id)
+                ->whereNull('deleted_at')
+                ->exists();
+            
+            $garage->is_favorite = $isFavorite;
+        } else {
+            $garage->load(['user', 'country', 'tags', 'languages', 'specializations', 'services', 'categories', 'work_shifts', 'contacts']);
+        }
+
+        return new GarageResource($garage);
     }
 
     public function update(UpdateGarageRequest $request, Garage $garage)
