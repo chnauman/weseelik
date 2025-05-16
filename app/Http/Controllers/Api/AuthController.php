@@ -11,6 +11,7 @@ use Illuminate\Validation\ValidationException;
 use Illuminate\Support\Facades\Password;
 use Illuminate\Support\Str;
 use Illuminate\Auth\Events\PasswordReset;
+use Illuminate\Support\Facades\Storage;
 
 class AuthController extends Controller
 {
@@ -297,6 +298,16 @@ class AuthController extends Controller
                 $updateData['longitude'] = $request->longitude;
             }
 
+            if ($request->hasFile('avatar')) {
+                if ($userDetail->avatar && Storage::disk('public')->exists($userDetail->avatar)) {
+                    Storage::disk('public')->delete($userDetail->avatar);
+                }
+
+                $avatar = $request->file('avatar');
+                $path = $avatar->store('avatars', 'public');
+                $updateData['avatar'] = $path;
+            }
+
             // Update the user details
             $userDetail->update($updateData);
 
@@ -325,8 +336,8 @@ class AuthController extends Controller
         try {
             $user = $request->user();
 
-            // Load user details relation if it exists
-            $user->load('detail');
+            // Load user details and vehicle brands relations if they exist
+            $user->load(['detail', 'vehicleBrands']);
 
             $profileData = [
                 'id' => $user->id,
@@ -343,7 +354,18 @@ class AuthController extends Controller
                 $profileData['address'] = $user->detail->address;
                 $profileData['latitude'] = $user->detail->latitude;
                 $profileData['longitude'] = $user->detail->longitude;
+                $profileData['avatar'] = $user->detail->avatar 
+                    ? asset('storage/' . $user->detail->avatar) 
+                    : null;
             }
+
+            // Add user brands
+            $profileData['brands'] = $user->vehicleBrands->map(function ($brand) {
+                return [
+                    'id' => $brand->id,
+                    'name' => $brand->title,
+                ];
+            });
 
             return response()->json([
                 'success' => true,

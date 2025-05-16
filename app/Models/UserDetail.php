@@ -18,6 +18,7 @@ class UserDetail extends Model
         'address',
         'latitude',
         'longitude',
+        'avatar',
         'created_at',
         'updated_at',
         'deleted_at',
