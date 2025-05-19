@@ -12,6 +12,7 @@ use Illuminate\Support\Facades\Password;
 use Illuminate\Support\Str;
 use Illuminate\Auth\Events\PasswordReset;
 use Illuminate\Support\Facades\Storage;
+use Laravel\Socialite\Facades\Socialite;
 
 class AuthController extends Controller
 {
@@ -375,6 +376,50 @@ class AuthController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to retrieve user profile',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    public function googleLogin(Request $request)
+    {
+        $request->validate([
+            'id_token' => 'required|string',
+            'device_name' => 'nullable|string',
+        ]);
+
+        try {
+            $googleUser = Socialite::driver('google')->stateless()->userFromToken($request->id_token);
+
+            // Find user or create
+            $user = User::where('email', $googleUser->getEmail())->first();
+
+            if (!$user) {
+                $user = User::create([
+                    'name' => $googleUser->getName(),
+                    'email' => $googleUser->getEmail(),
+                    'password' => Hash::make(Str::random(16)), // Dummy password
+                ]);
+
+                $user->detail()->create(); // create empty detail record
+            }
+
+            $token = $user->createToken($request->device_name ?? 'mobile')->plainTextToken;
+
+            return response()->json([
+                'success' => true,
+                'token' => $token,
+                'token_type' => 'Bearer',
+                'user' => [
+                    'id' => $user->id,
+                    'name' => $user->name,
+                    'email' => $user->email,
+                ]
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Google login failed',
                 'error' => $e->getMessage()
             ], 500);
         }

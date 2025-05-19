@@ -15,6 +15,7 @@ Route::group(['prefix' => 'v1', 'as' => 'api.', 'namespace' => 'Api\V1\Admin'], 
 
     // Public Auth Routes
     Route::post('/login', [AuthController::class, 'login']);
+    Route::post('/google-login', [AuthController::class, 'googleLogin']);
     Route::post('/register', [AuthController::class, 'register']);
     Route::post('/forgot-password', [AuthController::class, 'forgotPassword']);
     Route::post('/reset-password', [AuthController::class, 'resetPassword']);
