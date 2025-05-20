@@ -243,6 +243,7 @@ class AuthController extends Controller
             'address' => 'sometimes|string',
             'latitude' => 'sometimes|string',
             'longitude' => 'sometimes|string',
+            'dob' => 'sometimes|date|date_format:Y-m-d',
         ]);
 
         if ($validator->fails()) {
@@ -297,6 +298,10 @@ class AuthController extends Controller
 
             if ($request->has('longitude')) {
                 $updateData['longitude'] = $request->longitude;
+            }
+
+            if ($request->has('dob')) {
+                $updateData['dob'] = $request->dob;
             }
 
             if ($request->hasFile('avatar')) {

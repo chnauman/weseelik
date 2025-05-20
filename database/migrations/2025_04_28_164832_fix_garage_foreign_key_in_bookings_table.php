@@ -13,7 +13,7 @@ return new class extends Migration
     {
         Schema::table('bookings', function (Blueprint $table) {
             // Drop the wrong foreign key
-            $table->dropForeign('garage_fk_10450133');
+            //$table->dropForeign('garage_fk_10450133');
 
             // Add the correct foreign key
             $table->foreign('garage_id', 'garage_fk_10450133')
@@ -27,7 +27,7 @@ return new class extends Migration
     {
         Schema::table('bookings', function (Blueprint $table) {
             // Rollback: drop the corrected FK and recreate the old FK
-            $table->dropForeign('garage_fk_10450133');
+            //$table->dropForeign('garage_fk_10450133');
 
             $table->foreign('garage_id', 'garage_fk_10450133')
                 ->references('id')
