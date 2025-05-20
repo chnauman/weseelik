@@ -97,6 +97,12 @@
                             {{ trans('cruds.garage.fields.surveyor') }}
                         </th>
                         <th>
+                            {{ trans('cruds.garage.fields.date') }}
+                        </th>
+                        <th>
+                            {{ trans('cruds.garage.fields.maps_share_link') }}
+                        </th>
+                        <th>
                             &nbsp;
                         </th>
                     </tr>
@@ -197,6 +203,12 @@
                             </td>
                             <td>
                                 {{ $garage->surveyor->name ?? '' }}
+                            </td>
+                            <td>
+                                {{ $garage->updated_at ? $garage->updated_at->format('Y-m-d') : '' }}
+                            </td>
+                            <td>
+                                {{ $garage->maps_share_link ?? '' }}
                             </td>
                             <td>
                                 @can('garage_show')
