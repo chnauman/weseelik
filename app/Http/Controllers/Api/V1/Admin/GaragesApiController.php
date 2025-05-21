@@ -336,8 +336,7 @@ class GaragesApiController extends Controller
         }
 
         // Apply distance filter and ordering
-        $garages = $query->having('distance', '<=', $radius)
-            ->orderBy('distance')
+        $garages = $query->orderBy('distance')
             ->offset($offset)
             ->limit($limit)
             ->get();
