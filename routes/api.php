@@ -54,6 +54,10 @@ Route::group(['prefix' => 'v1', 'as' => 'api.', 'namespace' => 'Api\V1\Admin'], 
         Route::post('/resend-verification-code', [AuthController::class, 'resendVerificationCode']);
         Route::post('/update-user-details', [AuthController::class, 'updateUserDetails']);
         Route::get('/user-profile', [AuthController::class, 'getUserProfile']);
+
+        Route::post('bookings/create', 'BookingApiController@createBooking')->name('bookings.createBooking');
+        Route::get('bookings/get-business-bookings', 'BookingApiController@getBusinessBookings')->name('bookings.getBusinessBookings');
+        Route::apiResource('bookings', 'BookingApiController');
     });
 
     Route::middleware('optional.auth')->get('garages/{garage}', 'GaragesApiController@show');
@@ -84,12 +88,6 @@ Route::group(['prefix' => 'v1', 'as' => 'api.', 'namespace' => 'Api\V1\Admin'], 
 
     // Message
     Route::apiResource('messages', 'MessageApiController');
-
-    // Booking
-    Route::middleware('auth:sanctum')->group(function () {
-        Route::post('bookings/create', 'BookingApiController@createBooking')->name('bookings.createBooking');
-        Route::apiResource('bookings', 'BookingApiController');
-    });
 
     // Category
     Route::apiResource('categories', 'CategoryApiController');

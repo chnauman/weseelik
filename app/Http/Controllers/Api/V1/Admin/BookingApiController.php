@@ -93,4 +93,56 @@ class BookingApiController extends Controller
             'message' => 'Booking created successfully',
         ], Response::HTTP_CREATED);
     }
+
+    public function getBusinessBookings(Request $request)
+    {
+        $user = Auth::user();
+
+        // If user is not a business user, return regular bookings
+        if ($user->type !== 'business') {
+            return $this->index();
+        }
+
+        // Get the garage associated with this business user
+        $garage = \App\Models\Garage::where('user_id', $user->id)->first();
+
+        if (!$garage) {
+            return response()->json([
+                'success' => false,
+                'message' => 'No garage found for this business user'
+            ], Response::HTTP_NOT_FOUND);
+        }
+
+        // Start building the query
+        $query = Booking::with(['user', 'garage'])
+            ->where('garage_id', $garage->id)
+            ->orderBy('appointment_time', 'desc');
+
+        // Apply date filter if provided
+        if ($request->has('date')) {
+            $date = $request->date;
+            $query->whereDate('appointment_time', $date);
+        }
+
+        // Get all bookings
+        $bookings = $query->get();
+
+        // Group bookings by date
+        $groupedBookings = $bookings->groupBy(function ($booking) {
+            return $booking->appointment_time->format('Y-m-d');
+        });
+
+        // Transform the data
+        $formattedBookings = $groupedBookings->map(function ($dateBookings) {
+            return [
+                'date' => $dateBookings->first()->appointment_time->format('Y-m-d'),
+                'bookings' => BookingResource::collection($dateBookings)
+            ];
+        })->values();
+
+        return response()->json([
+            'success' => true,
+            'data' => $formattedBookings
+        ]);
+    }
 }
