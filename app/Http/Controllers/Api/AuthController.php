@@ -560,6 +560,15 @@ class AuthController extends Controller
             ], 404);
         }
 
+        // Check if phone is already verified
+        if ($userDetail->is_phone_verified) {
+            return response()->json([
+                'success' => true,
+                'message' => 'Phone number is already verified',
+                'is_phone_verified' => true
+            ]);
+        }
+
         // Generate new verification code
         $verificationCode = str_pad(random_int(0, 999999), 6, '0', STR_PAD_LEFT);
         $verificationCodeExpiresAt = now()->addMinutes(10);
