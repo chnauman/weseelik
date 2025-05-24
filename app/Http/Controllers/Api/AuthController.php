@@ -70,6 +70,7 @@ class AuthController extends Controller
                 'email' => $user->email,
                 'type' => $user->type,
                 'is_profile_complete' => $user->is_profile_complete,
+                'is_phone_verified' => $user->detail->is_phone_verified,
                 'roles' => $user->roles->pluck('title'),
                 'created_at' => $user->created_at,
             ],
