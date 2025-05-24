@@ -14,6 +14,7 @@ use Illuminate\Auth\Events\PasswordReset;
 use Illuminate\Support\Facades\Storage;
 use Laravel\Socialite\Facades\Socialite;
 use Twilio\Rest\Client;
+use Carbon\Carbon;
 
 class AuthController extends Controller
 {
@@ -256,7 +257,7 @@ class AuthController extends Controller
             ], 400);
         }
 
-        if ($userDetail->verification_code_expires_at->isPast()) {
+        if (Carbon::parse($userDetail->verification_code_expires_at)->isPast()) {
             return response()->json([
                 'success' => false,
                 'message' => 'Verification code has expired'
