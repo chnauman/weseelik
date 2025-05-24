@@ -129,13 +129,13 @@ class BookingApiController extends Controller
 
         // Group bookings by date
         $groupedBookings = $bookings->groupBy(function ($booking) {
-            return $booking->appointment_time->format('Y-m-d');
+            return \Carbon\Carbon::parse($booking->appointment_time)->format('Y-m-d');
         });
 
         // Transform the data
         $formattedBookings = $groupedBookings->map(function ($dateBookings) {
             return [
-                'date' => $dateBookings->first()->appointment_time->format('Y-m-d'),
+                'date' => \Carbon\Carbon::parse($dateBookings->first()->appointment_time)->format('Y-m-d'),
                 'bookings' => BookingResource::collection($dateBookings)
             ];
         })->values();
