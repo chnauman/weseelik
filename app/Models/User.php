@@ -43,9 +43,14 @@ class User extends Authenticatable
         'password',
         'remember_token',
         'type',
+        'is_profile_complete',
         'created_at',
         'updated_at',
         'deleted_at',
+    ];
+
+    protected $casts = [
+        'is_profile_complete' => 'boolean',
     ];
 
     protected function serializeDate(DateTimeInterface $date)

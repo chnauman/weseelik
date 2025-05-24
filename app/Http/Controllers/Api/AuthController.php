@@ -13,9 +13,20 @@ use Illuminate\Support\Str;
 use Illuminate\Auth\Events\PasswordReset;
 use Illuminate\Support\Facades\Storage;
 use Laravel\Socialite\Facades\Socialite;
+use Twilio\Rest\Client;
 
 class AuthController extends Controller
 {
+    protected $twilioClient;
+
+    public function __construct()
+    {
+        $this->twilioClient = new Client(
+            config('services.twilio.sid'),
+            config('services.twilio.auth_token')
+        );
+    }
+
     /**
      * Login user and create token
      *
@@ -56,6 +67,8 @@ class AuthController extends Controller
                 'id' => $user->id,
                 'name' => $user->name,
                 'email' => $user->email,
+                'type' => $user->type,
+                'is_profile_complete' => $user->is_profile_complete,
                 'roles' => $user->roles->pluck('title'),
                 'created_at' => $user->created_at,
             ],
@@ -109,12 +122,12 @@ class AuthController extends Controller
                 'phone_number' => 'required|string',
                 'password' => 'required|string|min:8',
                 'device_name' => 'nullable|string',
+                'type' => 'required|string|in:client,business',
             ]);
 
             if ($validator->fails()) {
                 $errors = $validator->errors();
 
-                // Check specifically for duplicate email
                 if ($errors->has('email') && str_contains($errors->first('email'), 'taken')) {
                     return response()->json([
                         'success' => false,
@@ -135,17 +148,39 @@ class AuthController extends Controller
                 'name' => $request->name,
                 'email' => $request->email,
                 'password' => Hash::make($request->password),
+                'type' => $request->type,
             ]);
 
-            // Create user details with phone number
+            // Generate verification code for business users
+            $verificationCode = null;
+            $verificationCodeExpiresAt = null;
+            
+            if ($request->type === 'business') {
+                $verificationCode = str_pad(random_int(0, 999999), 6, '0', STR_PAD_LEFT);
+                $verificationCodeExpiresAt = now()->addMinutes(10);
+                
+                // Send verification code via Twilio
+                try {
+                    $this->twilioClient->messages->create(
+                        $request->phone_number,
+                        [
+                            'from' => config('services.twilio.phone_number'),
+                            'body' => "Your Weseelik verification code is: {$verificationCode}. This code will expire in 10 minutes."
+                        ]
+                    );
+                } catch (\Exception $e) {
+                    // Log the error but continue with user creation
+                    \Log::error('Twilio SMS Error: ' . $e->getMessage());
+                }
+            }
+
+            // Create user details with phone number and verification data
             $user->detail()->create([
                 'phone_number' => $request->phone_number,
+                'verification_code' => $verificationCode,
+                'verification_code_expires_at' => $verificationCodeExpiresAt,
+                'is_phone_verified' => $request->type === 'client', // Auto-verify client users
             ]);
-
-            // $user->vehicleBrands()->sync($request->input('brand_id', []));
-
-            // Attach default role if needed
-            // $user->roles()->attach(Role::where('title', 'User')->first());
 
             $deviceName = $request->device_name ?? 'mobile';
             $token = $user->createToken($deviceName)->plainTextToken;
@@ -154,11 +189,18 @@ class AuthController extends Controller
                 'success' => true,
                 'message' => 'User successfully registered',
                 'user_id' => $user->id,
+                'user' => [
+                    'id' => $user->id,
+                    'name' => $user->name,
+                    'email' => $user->email,
+                    'type' => $user->type,
+                    'is_profile_complete' => $user->is_profile_complete,
+                    'is_phone_verified' => $user->detail->is_phone_verified,
+                ],
                 'token' => $token,
                 'token_type' => 'Bearer',
             ], 201);
         } catch (\Illuminate\Database\QueryException $e) {
-            // Catch unique constraint violation for email
             if ($e->errorInfo[1] == 1062) {
                 return response()->json([
                     'success' => false,
@@ -173,6 +215,66 @@ class AuthController extends Controller
                 'error' => $e->getMessage()
             ], 500);
         }
+    }
+
+    /**
+     * Verify phone number with verification code
+     *
+     * @param  \Illuminate\Http\Request  $request
+     * @return \Illuminate\Http\JsonResponse
+     */
+    public function verifyPhone(Request $request)
+    {
+        $request->validate([
+            'verification_code' => 'required|string|size:6',
+        ]);
+
+        $user = $request->user();
+        
+        // Check if user is a business user
+        if ($user->type !== 'business') {
+            return response()->json([
+                'success' => false,
+                'message' => 'Phone verification is only required for business users'
+            ], 400);
+        }
+
+        $userDetail = $user->detail;
+
+        if (!$userDetail) {
+            return response()->json([
+                'success' => false,
+                'message' => 'User details not found'
+            ], 404);
+        }
+
+        // Check if verification code matches and hasn't expired
+        if ($userDetail->verification_code !== $request->verification_code) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Invalid verification code'
+            ], 400);
+        }
+
+        if ($userDetail->verification_code_expires_at->isPast()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Verification code has expired'
+            ], 400);
+        }
+
+        // Update verification status
+        $userDetail->update([
+            'is_phone_verified' => true,
+            'verification_code' => null,
+            'verification_code_expires_at' => null,
+        ]);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Phone number verified successfully',
+            'is_phone_verified' => true
+        ]);
     }
 
     /**

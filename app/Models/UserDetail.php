@@ -20,6 +20,9 @@ class UserDetail extends Model
         'longitude',
         'avatar',
         'dob',
+        'verification_code',
+        'verification_code_expires_at',
+        'is_phone_verified',
         'created_at',
         'updated_at',
         'deleted_at',
@@ -29,6 +32,11 @@ class UserDetail extends Model
         'created_at',
         'updated_at',
         'deleted_at',
+        'verification_code_expires_at',
+    ];
+
+    protected $casts = [
+        'is_phone_verified' => 'boolean',
     ];
 
     protected function serializeDate(DateTimeInterface $date)
