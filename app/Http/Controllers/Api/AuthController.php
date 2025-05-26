@@ -163,7 +163,8 @@ class AuthController extends Controller
                 
                 // Send verification code via Twilio
                 try {
-                    $this->twilioClient->verify->v2->services(config('services.twilio.verify_service_sid'))
+
+                    $this->twilioClient->verify->v2->services( config('services.twilio.sid'))
                     ->verifications
                     ->create($request->phone_number, "sms");
                     /*
