@@ -13,7 +13,7 @@ use Illuminate\Support\Str;
 use Illuminate\Auth\Events\PasswordReset;
 use Illuminate\Support\Facades\Storage;
 use Laravel\Socialite\Facades\Socialite;
-use Twilio\Rest\Client;
+// use Twilio\Rest\Client;
 use Carbon\Carbon;
 
 class AuthController extends Controller
@@ -22,10 +22,12 @@ class AuthController extends Controller
 
     public function __construct()
     {
+        /*
         $this->twilioClient = new Client(
             config('services.twilio.sid'),
             config('services.twilio.auth_token')
         );
+        */
     }
 
     /**
@@ -163,6 +165,7 @@ class AuthController extends Controller
                 
                 // Send verification code via Twilio
                 try {
+                    /*
                     $this->twilioClient->messages->create(
                         $request->phone_number,
                         [
@@ -170,6 +173,7 @@ class AuthController extends Controller
                             'body' => "Your Weseelik verification code is: {$verificationCode}. This code will expire in 10 minutes."
                         ]
                     );
+                    */
                 } catch (\Exception $e) {
                     // Log the error but continue with user creation
                     \Log::error('Twilio SMS Error: ' . $e->getMessage());
@@ -196,6 +200,7 @@ class AuthController extends Controller
                     'name' => $user->name,
                     'email' => $user->email,
                     'type' => $user->type,
+                    'verification_code' => $verificationCode,
                     'is_profile_complete' => $user->is_profile_complete,
                     'is_phone_verified' => $user->detail->is_phone_verified,
                 ],
