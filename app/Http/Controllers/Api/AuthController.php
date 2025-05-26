@@ -163,6 +163,10 @@ class AuthController extends Controller
                 
                 // Send verification code via Twilio
                 try {
+                    $this->twilioClient->verify->v2->services(config('services.twilio.verify_service_sid'))
+                    ->verifications
+                    ->create($request->phone_number, "sms");
+                    /*
                     $this->twilioClient->messages->create(
                         $request->phone_number,
                         [
@@ -170,6 +174,7 @@ class AuthController extends Controller
                             'body' => "Your Weseelik verification code is: {$verificationCode}. This code will expire in 10 minutes."
                         ]
                     );
+                    */
                 } catch (\Exception $e) {
                     // Log the error but continue with user creation
                     \Log::error('Twilio SMS Error: ' . $e->getMessage());
