@@ -239,7 +239,7 @@ class AuthController extends Controller
     public function verifyPhone(Request $request)
     {
         $request->validate([
-            'verification_code' => 'required|string|size:6',
+            'verification_code' => 'required|string|size:4',
         ]);
 
         $user = $request->user();
