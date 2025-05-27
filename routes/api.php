@@ -52,6 +52,7 @@ Route::group(['prefix' => 'v1', 'as' => 'api.', 'namespace' => 'Api\V1\Admin'], 
 
         Route::post('/verify-phone', [AuthController::class, 'verifyPhone']);
         Route::post('/resend-verification-code', [AuthController::class, 'resendVerificationCode']);
+        Route::post('/change-phone-number', [AuthController::class, 'changePhoneNumber']);
         Route::post('/update-user-details', [AuthController::class, 'updateUserDetails']);
         Route::get('/user-profile', [AuthController::class, 'getUserProfile']);
 

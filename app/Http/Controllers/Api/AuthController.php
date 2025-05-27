@@ -582,7 +582,7 @@ class AuthController extends Controller
         }
 
         // Generate new verification code
-        $verificationCode = str_pad(random_int(0, 999999), 6, '0', STR_PAD_LEFT);
+        $verificationCode = str_pad(random_int(0, 9999), 4, '0', STR_PAD_LEFT);
         $verificationCodeExpiresAt = now()->addMinutes(10);
 
         // Send verification code via Twilio
@@ -611,6 +611,65 @@ class AuthController extends Controller
                 'message' => 'Verification code has been resent',
                 'verification_code' => config('services.twilio.test_mode', false) ? $verificationCode : null
             ]);
+        } catch (\Exception $e) {
+            \Log::error('Twilio SMS Error: ' . $e->getMessage());
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to send verification code'
+            ], 500);
+        }
+    }
+
+    /**
+     * Change user's phone number and send verification code
+     *
+     * @param  \Illuminate\Http\Request  $request
+     * @return \Illuminate\Http\JsonResponse
+     */
+    public function changePhoneNumber(Request $request)
+    {
+        $request->validate([
+            'phone_number' => 'required|string',
+        ]);
+
+        $user = $request->user();
+        $userDetail = $user->detail;
+
+        if (!$userDetail) {
+            return response()->json([
+                'success' => false,
+                'message' => 'User details not found'
+            ], 404);
+        }
+
+        // Generate new verification code
+        $verificationCode = str_pad(random_int(0, 9999), 4, '0', STR_PAD_LEFT);
+        $verificationCodeExpiresAt = now()->addMinutes(10);
+
+        try {
+            // Send verification code via Twilio
+            $this->twilioClient->messages->create(
+                $request->phone_number,
+                [
+                    'from' => config('services.twilio.phone_number'),
+                    'body' => "Your Weseelik verification code is: {$verificationCode}. This code will expire in 10 minutes."
+                ]
+            );
+
+            // Update user details with new phone number and verification code
+            $userDetail->update([
+                'phone_number' => $request->phone_number,
+                'verification_code' => $verificationCode,
+                'verification_code_expires_at' => $verificationCodeExpiresAt,
+                'is_phone_verified' => false // Reset verification status
+            ]);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Phone number updated and verification code sent',
+                'verification_code' => config('services.twilio.test_mode', false) ? $verificationCode : null
+            ]);
+
         } catch (\Exception $e) {
             \Log::error('Twilio SMS Error: ' . $e->getMessage());
             return response()->json([
