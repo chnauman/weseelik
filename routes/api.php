@@ -49,6 +49,7 @@ Route::group(['prefix' => 'v1', 'as' => 'api.', 'namespace' => 'Api\V1\Admin'], 
         Route::post('garages/is-blocked', 'UserBlockApiController@isBlocked')->name('garages.isBlocked');
 
         Route::get('garages/by-user', 'GaragesApiController@getUserGarages')->name('garages.getUserGarages');
+        Route::get('garages/business-details', 'GaragesApiController@getBusinessDetails')->name('garages.getBusinessDetails');
 
         Route::post('/verify-phone', [AuthController::class, 'verifyPhone']);
         Route::post('/resend-verification-code', [AuthController::class, 'resendVerificationCode']);

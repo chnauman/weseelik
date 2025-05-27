@@ -501,4 +501,35 @@ class GaragesApiController extends Controller
         $garages = $query->get();
         return new GarageResource($garages);
     }
+
+    /**
+     * Get business details for authenticated business user
+     *
+     * @param  \Illuminate\Http\Request  $request
+     * @return \Illuminate\Http\JsonResponse
+     */
+    public function getBusinessDetails(Request $request)
+    {
+        $user = auth()->user();
+
+        if (!$user || $user->type !== 'business') {
+            return response()->json([
+                'success' => false,
+                'message' => 'Unauthorized. Only business users can access this endpoint.'
+            ], Response::HTTP_FORBIDDEN);
+        }
+
+        $garage = Garage::where('user_id', $user->id)
+            ->with(['country', 'tags', 'languages', 'specializations', 'services', 'categories', 'work_shifts', 'contacts'])
+            ->first();
+
+        if (!$garage) {
+            return response()->json([
+                'success' => false,
+                'message' => 'No garage found for this business user.'
+            ], Response::HTTP_NOT_FOUND);
+        }
+
+        return new GarageResource($garage);
+    }
 }
