@@ -158,7 +158,7 @@ class AuthController extends Controller
             $verificationCodeExpiresAt = null;
             
             if ($request->type === 'business') {
-                $verificationCode = str_pad(random_int(0, 999999), 6, '0', STR_PAD_LEFT);
+                $verificationCode = str_pad(random_int(0, 9999), 4, '0', STR_PAD_LEFT);
                 $verificationCodeExpiresAt = now()->addMinutes(10);
                 
                 // Send verification code via Twilio
