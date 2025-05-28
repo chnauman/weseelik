@@ -29,7 +29,13 @@ class GaragesApiController extends Controller
     public function store(StoreGarageRequest $request)
     {
         $data = $request->all();
-        $data['surveyor_id'] = auth()->id();
+        $user_id = auth()->id();
+        $user = User::find($user_id);
+        if($user->type == 'business'){
+            $data['user_id'] = auth()->id();
+        } else {
+            $data['surveyor_id'] = auth()->id();
+        }
 
         $garage = Garage::create($data);
 
