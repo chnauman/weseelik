@@ -9,6 +9,7 @@ use App\Http\Requests\UpdateGarageRequest;
 use App\Http\Resources\Admin\GarageResource;
 use App\Models\Garage;
 use App\Models\Contact;
+use App\Models\User;
 use App\Models\UserBlock;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\DB;
