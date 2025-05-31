@@ -552,4 +552,43 @@ class GaragesApiController extends Controller
 
         return new GarageResource($garage);
     }
+
+    /**
+     * Update garage availability status
+     *
+     * @param  \Illuminate\Http\Request  $request
+     * @return \Illuminate\Http\JsonResponse
+     */
+    public function updateGarageAvailability(Request $request)
+    {
+        $user = auth()->user();
+
+        if (!$user || $user->type !== 'business') {
+            return response()->json([
+                'success' => false,
+                'message' => 'Unauthorized. Only business users can update garage availability.'
+            ], Response::HTTP_FORBIDDEN);
+        }
+
+        $garage = Garage::where('user_id', $user->id)->first();
+
+        if (!$garage) {
+            return response()->json([
+                'success' => false,
+                'message' => 'No garage found for this business user.'
+            ], Response::HTTP_NOT_FOUND);
+        }
+
+        // Toggle the availability
+        $garage->is_available = !$garage->is_available;
+        $garage->save();
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Garage availability updated successfully.',
+            'data' => [
+                'is_available' => $garage->is_available
+            ]
+        ]);
+    }
 }

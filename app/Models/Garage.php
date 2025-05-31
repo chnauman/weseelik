@@ -63,7 +63,8 @@ class Garage extends Model implements HasMedia
         'block',
         'maps_share_link',
         'home_service',
-        'pickup_service'
+        'pickup_service',
+        'is_available'
     ];
 
     protected function serializeDate(DateTimeInterface $date)

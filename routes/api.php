@@ -47,6 +47,7 @@ Route::group(['prefix' => 'v1', 'as' => 'api.', 'namespace' => 'Api\V1\Admin'], 
         Route::post('garages/block', 'UserBlockApiController@blockGarage')->name('garages.block');
         Route::post('garages/unblock', 'UserBlockApiController@unblockGarage')->name('garages.unblock');
         Route::post('garages/is-blocked', 'UserBlockApiController@isBlocked')->name('garages.isBlocked');
+        Route::post('garages/update-availability', 'GaragesApiController@updateGarageAvailability')->name('garages.updateAvailability');
 
         Route::get('garages/by-user', 'GaragesApiController@getUserGarages')->name('garages.getUserGarages');
         Route::get('garages/business-details', 'GaragesApiController@getBusinessDetails')->name('garages.getBusinessDetails');
