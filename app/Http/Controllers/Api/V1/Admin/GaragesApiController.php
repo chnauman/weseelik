@@ -591,4 +591,112 @@ class GaragesApiController extends Controller
             ]
         ]);
     }
+
+    /**
+     * Update the authenticated business user's garage
+     *
+     * @param  \Illuminate\Http\Request  $request
+     * @return \Illuminate\Http\JsonResponse
+     */
+    public function updateBusinessGarage(Request $request)
+    {
+        $user = auth()->user();
+
+        if (!$user || $user->type !== 'business') {
+            return response()->json([
+                'success' => false,
+                'message' => 'Unauthorized. Only business users can update their garage.'
+            ], Response::HTTP_FORBIDDEN);
+        }
+
+        $garage = Garage::where('user_id', $user->id)->first();
+
+        if (!$garage) {
+            return response()->json([
+                'success' => false,
+                'message' => 'No garage found for this business user.'
+            ], Response::HTTP_NOT_FOUND);
+        }
+
+        try {
+            $garage->update($request->all());
+            
+            // Update relationships
+            if ($request->has('tags')) {
+                $garage->tags()->sync($request->input('tags', []));
+            }
+            if ($request->has('languages')) {
+                $garage->languages()->sync($request->input('languages', []));
+            }
+            if ($request->has('specializations')) {
+                $garage->specializations()->sync($request->input('specializations', []));
+            }
+            if ($request->has('services')) {
+                $garage->services()->sync($request->input('services', []));
+            }
+            if ($request->has('categories')) {
+                $garage->categories()->sync($request->input('categories', []));
+            }
+
+            // Update work shifts
+            if ($request->has('work_shifts') && is_array($request->input('work_shifts'))) {
+                // Delete existing shifts for this garage
+                $garage->work_shifts()->delete();
+
+                // Create new shifts based on request data
+                foreach ($request->input('work_shifts') as $shiftData) {
+                    $garage->work_shifts()->create([
+                        'opening_time' => $shiftData['opening_time'],
+                        'closing_time' => $shiftData['closing_time'],
+                        'day_of_week' => $shiftData['day_of_week'] ?? null,
+                    ]);
+                }
+            }
+
+            // Update contacts
+            if ($request->has('contacts') && is_array($request->input('contacts'))) {
+                // Delete existing contacts for this garage
+                $garage->contacts()->delete();
+
+                // Create new contacts based on request data
+                foreach ($request->input('contacts') as $contactData) {
+                    $garage->contacts()->create([
+                        'contact_no' => $contactData['contact_no'],
+                        'type' => $contactData['type'] ?? 'mobile',
+                        'status' => $contactData['status'] ?? 'active',
+                    ]);
+                }
+            }
+
+            // Handle media uploads
+            if ($request->hasFile('logo')) {
+                foreach ($request->file('logo') as $file) {
+                    $garage->addMedia($file)->toMediaCollection('logo');
+                }
+            }
+
+            if ($request->hasFile('storefront_image')) {
+                foreach ($request->file('storefront_image') as $file) {
+                    $garage->addMedia($file)->toMediaCollection('storefront_image');
+                }
+            }
+
+            if ($request->hasFile('gallery')) {
+                foreach ($request->file('gallery') as $file) {
+                    $garage->addMedia($file)->toMediaCollection('gallery');
+                }
+            }
+
+            return (new GarageResource($garage))
+                ->response()
+                ->setStatusCode(Response::HTTP_ACCEPTED);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Error updating garage',
+                'error' => $e->getMessage()
+            ], Response::HTTP_INTERNAL_SERVER_ERROR);
+        }
+    }
 }
