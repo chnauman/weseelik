@@ -114,7 +114,7 @@ class BookingApiController extends Controller
         }
 
         // Start building the query
-        $query = Booking::with(['user'])
+        $query = Booking::with(['user', 'user.detail'])
             ->where('garage_id', $garage->id)
             ->orderBy('appointment_time', 'desc');
 

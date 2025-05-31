@@ -29,83 +29,96 @@ class GaragesApiController extends Controller
 
     public function store(StoreGarageRequest $request)
     {
-        $data = $request->all();
-        $user_id = auth()->id();
-        $user = User::find($user_id);
-        if($user->type == 'business'){
-            $data['user_id'] = auth()->id();
-        } else {
-            $data['surveyor_id'] = auth()->id();
-        }
-
-        $garage = Garage::create($data);
-
-        $garage->tags()->sync($request->input('tags', []));
-        $garage->languages()->sync($request->input('languages', []));
-        $garage->specializations()->sync($request->input('specializations', []));
-        $garage->services()->sync($request->input('services', []));
-        $garage->categories()->sync($request->input('categories', []));
-
-        // Create work shifts for the garage
-        if ($request->has('work_shifts') && is_array($request->input('work_shifts'))) {
-            foreach ($request->input('work_shifts') as $shiftData) {
-                $garage->work_shifts()->create([
-                    'opening_time' => $shiftData['opening_time'],
-                    'closing_time' => $shiftData['closing_time'],
-                    'day_of_week' => $shiftData['day_of_week'] ?? null,
-                ]);
+        try {
+            $data = $request->all();
+            $user_id = auth()->id();
+            $user = User::find($user_id);
+            if($user->type == 'business'){
+                $data['user_id'] = auth()->id();
+            } else {
+                $data['surveyor_id'] = auth()->id();
             }
-        }
 
-        // Create contacts for the garage
-        if ($request->has('contacts') && is_array($request->input('contacts'))) {
-            foreach ($request->input('contacts') as $contactData) {
-                $garage->contacts()->create([
-                    'contact_no' => $contactData['contact_no'],
-                    'type' => $contactData['type'] ?? 'mobile',
-                    'status' => $contactData['status'] ?? 'active',
-                ]);
+            $garage = Garage::create($data);
+
+            $garage->tags()->sync($request->input('tags', []));
+            $garage->languages()->sync($request->input('languages', []));
+            $garage->specializations()->sync($request->input('specializations', []));
+            $garage->services()->sync($request->input('services', []));
+            $garage->categories()->sync($request->input('categories', []));
+
+            // Create work shifts for the garage
+            if ($request->has('work_shifts') && is_array($request->input('work_shifts'))) {
+                foreach ($request->input('work_shifts') as $shiftData) {
+                    $garage->work_shifts()->create([
+                        'opening_time' => $shiftData['opening_time'],
+                        'closing_time' => $shiftData['closing_time'],
+                        'day_of_week' => $shiftData['day_of_week'] ?? null,
+                    ]);
+                }
             }
-        }
 
-        // Handle logo upload
-        if ($request->hasFile('logo')) {
-            foreach ($request->file('logo') as $file) {
-                $garage->addMedia($file)->toMediaCollection('logo');
+            // Create contacts for the garage
+            if ($request->has('contacts') && is_array($request->input('contacts'))) {
+                foreach ($request->input('contacts') as $contactData) {
+                    $garage->contacts()->create([
+                        'contact_no' => $contactData['contact_no'],
+                        'type' => $contactData['type'] ?? 'mobile',
+                        'status' => $contactData['status'] ?? 'active',
+                    ]);
+                }
             }
-        }
 
-        // Handle storefront image upload
-        if ($request->hasFile('storefront_image')) {
-            foreach ($request->file('storefront_image') as $file) {
-                $garage->addMedia($file)->toMediaCollection('storefront_image');
+            // Handle logo upload
+            if ($request->hasFile('logo')) {
+                foreach ($request->file('logo') as $file) {
+                    $garage->addMedia($file)->toMediaCollection('logo');
+                }
             }
-        }
 
-        // Handle gallery upload
-        if ($request->hasFile('gallery')) {
-            foreach ($request->file('gallery') as $file) {
-                $garage->addMedia($file)->toMediaCollection('gallery');
+            // Handle storefront image upload
+            if ($request->hasFile('storefront_image')) {
+                foreach ($request->file('storefront_image') as $file) {
+                    $garage->addMedia($file)->toMediaCollection('storefront_image');
+                }
             }
-        }
-        /*
 
-        if ($request->input('logo', false)) {
-            $garage->addMedia(storage_path('tmp/uploads/' . basename($request->input('logo'))))->toMediaCollection('logo');
-        }
+            // Handle gallery upload
+            if ($request->hasFile('gallery')) {
+                foreach ($request->file('gallery') as $file) {
+                    $garage->addMedia($file)->toMediaCollection('gallery');
+                }
+            }
+            /*
 
-        if ($request->input('storefront_image', false)) {
-            $garage->addMedia(storage_path('tmp/uploads/' . basename($request->input('storefront_image'))))->toMediaCollection('storefront_image');
-        }
+            if ($request->input('logo', false)) {
+                $garage->addMedia(storage_path('tmp/uploads/' . basename($request->input('logo'))))->toMediaCollection('logo');
+            }
 
-        foreach ($request->input('gallery', []) as $file) {
-            $garage->addMedia(storage_path('tmp/uploads/' . basename($file)))->toMediaCollection('gallery');
-        }
-*/
+            if ($request->input('storefront_image', false)) {
+                $garage->addMedia(storage_path('tmp/uploads/' . basename($request->input('storefront_image'))))->toMediaCollection('storefront_image');
+            }
 
-        return (new GarageResource($garage))
-            ->response()
-            ->setStatusCode(Response::HTTP_CREATED);
+            foreach ($request->input('gallery', []) as $file) {
+                $garage->addMedia(storage_path('tmp/uploads/' . basename($file)))->toMediaCollection('gallery');
+            }
+            */
+            if($user->type == 'business'){
+                $user->update(['is_profile_complete' => true]);
+            }
+
+            return (new GarageResource($garage))
+                ->response()
+                ->setStatusCode(Response::HTTP_CREATED);
+        } catch (\Throwable $th) {
+            //throw $th;
+            return response()->json([
+                'success' => false,
+                'message' => 'Error creating garage',
+                'error' => $th->getMessage()
+            ], Response::HTTP_INTERNAL_SERVER_ERROR);
+        }
+        
     }
 
     public function show(Garage $garage)
