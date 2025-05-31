@@ -60,6 +60,7 @@ Route::group(['prefix' => 'v1', 'as' => 'api.', 'namespace' => 'Api\V1\Admin'], 
 
         Route::post('bookings/create', 'BookingApiController@createBooking')->name('bookings.createBooking');
         Route::get('bookings/get-business-bookings', 'BookingApiController@getBusinessBookings')->name('bookings.getBusinessBookings');
+        Route::post('bookings/update-status', 'BookingApiController@updateStatus')->name('bookings.updateStatus');
         Route::apiResource('bookings', 'BookingApiController');
     });
 

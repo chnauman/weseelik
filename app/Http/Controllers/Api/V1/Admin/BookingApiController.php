@@ -145,4 +145,75 @@ class BookingApiController extends Controller
             'data' => $formattedBookings
         ]);
     }
+
+    /**
+     * Update booking status
+     *
+     * @param  \Illuminate\Http\Request  $request
+     * @return \Illuminate\Http\JsonResponse
+     */
+    public function updateStatus(Request $request)
+    {
+        $validator = validator($request->all(), [
+            'booking_id' => 'required|integer|exists:bookings,id',
+            'status' => 'nullable|string|in:pending,confirmed,cancelled,completed',
+            'processing_status' => 'nullable|string|in:n/a,pending,in-progress,completed'
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Validation failed',
+                'errors' => $validator->errors()
+            ], Response::HTTP_UNPROCESSABLE_ENTITY);
+        }
+
+        $user = Auth::user();
+
+        // If user is not a business user, return unauthorized
+        if ($user->type !== 'business') {
+            return response()->json([
+                'success' => false,
+                'message' => 'Unauthorized. Only business users can update booking status.'
+            ], Response::HTTP_FORBIDDEN);
+        }
+
+        // Get the garage associated with this business user
+        $garage = \App\Models\Garage::where('user_id', $user->id)->first();
+
+        if (!$garage) {
+            return response()->json([
+                'success' => false,
+                'message' => 'No garage found for this business user'
+            ], Response::HTTP_NOT_FOUND);
+        }
+
+        // Find the booking and verify it belongs to this garage
+        $booking = Booking::where('id', $request->booking_id)
+            ->where('garage_id', $garage->id)
+            ->first();
+
+        if (!$booking) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Booking not found or does not belong to your garage'
+            ], Response::HTTP_NOT_FOUND);
+        }
+
+        // Update only the fields that are provided in the request
+        if ($request->has('status')) {
+            $booking->status = $request->status;
+        }
+        if ($request->has('processing_status')) {
+            $booking->processing_status = $request->processing_status;
+        }
+
+        $booking->save();
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Booking status updated successfully',
+            'data' => new BookingResource($booking)
+        ]);
+    }
 }
