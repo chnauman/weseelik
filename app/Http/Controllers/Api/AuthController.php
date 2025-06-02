@@ -649,7 +649,7 @@ class AuthController extends Controller
             $this->twilioClient->messages->create(
                 $request->phone_number,
                 [
-                    'from' => config('services.twilio.phone_number'),
+                    'from' => "+12393651789",
                     'body' => "Your Weseelik verification code is: {$verificationCode}. This code will expire in 10 minutes."
                 ]
             );
