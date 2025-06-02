@@ -565,8 +565,6 @@ class AuthController extends Controller
 
         $userDetail = $user->detail;
 
-        dd($userDetail);
-
         if (!$userDetail) {
             return response()->json([
                 'success' => false,
@@ -593,7 +591,7 @@ class AuthController extends Controller
                 \Log::info('Test Mode: Verification code would be sent to ' . $userDetail->phone_number . ': ' . $verificationCode);
             } else {
                 $this->twilioClient->messages->create(
-                    $request->phone_number,
+                    $userDetail->phone_number,
                     [
                         'from' => "+12393651789",
                         'body' => "Your Weseelik verification code is: {$verificationCode}. This code will expire in 10 minutes."
