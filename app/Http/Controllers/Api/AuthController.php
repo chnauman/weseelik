@@ -595,7 +595,7 @@ class AuthController extends Controller
                     'body' => "Your Weseelik verification code is: {$verificationCode}. This code will expire in 10 minutes."
                 ]
             );
-            dd($result);
+            //
 
             // Update user details with new verification code
             $userDetail->update([
