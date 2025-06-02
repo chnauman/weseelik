@@ -565,6 +565,8 @@ class AuthController extends Controller
 
         $userDetail = $user->detail;
 
+        dd($userDetail);
+
         if (!$userDetail) {
             return response()->json([
                 'success' => false,
