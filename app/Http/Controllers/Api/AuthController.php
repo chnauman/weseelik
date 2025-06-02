@@ -587,27 +587,15 @@ class AuthController extends Controller
 
         // Send verification code via Twilio
         try {
-            if (config('services.twilio.test_mode', false)) {
-                \Log::info('Test Mode: Verification code would be sent to ' . $userDetail->phone_number . ': ' . $verificationCode);
-            } else {
-                $result = $this->twilioClient->messages->create(
-                    $userDetail->phone_number,
-                    [
-                        'from' => "+12393651789",
-                        'body' => "Your Weseelik verification code is: {$verificationCode}. This code will expire in 10 minutes."
-                    ]
-                );
-                dd($result);
-                /*
-                $this->twilioClient->messages->create(
-                    $userDetail->phone_number,
-                    [
-                        'from' => config('services.twilio.phone_number'),
-                        'body' => "Your Weseelik verification code is: {$verificationCode}. This code will expire in 10 minutes."
-                    ]
-                );
-                */
-            }
+            
+            $result = $this->twilioClient->messages->create(
+                $userDetail->phone_number,
+                [
+                    'from' => "+12393651789",
+                    'body' => "Your Weseelik verification code is: {$verificationCode}. This code will expire in 10 minutes."
+                ]
+            );
+            dd($result);
 
             // Update user details with new verification code
             $userDetail->update([
