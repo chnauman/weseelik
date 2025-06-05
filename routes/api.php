@@ -63,6 +63,10 @@ Route::group(['prefix' => 'v1', 'as' => 'api.', 'namespace' => 'Api\V1\Admin'], 
         Route::get('bookings/get-business-bookings', 'BookingApiController@getBusinessBookings')->name('bookings.getBusinessBookings');
         Route::post('bookings/update-status', 'BookingApiController@updateStatus')->name('bookings.updateStatus');
         Route::apiResource('bookings', 'BookingApiController');
+
+        Route::get('/load-chats', [AuthController::class, 'loadChats']);
+        Route::get('/load-chat-messages/{participant_id}', [AuthController::class, 'loadChatMessages']);
+        Route::post('/mark-as-read', [AuthController::class, 'markAsRead']);
     });
 
     Route::middleware('optional.auth')->get('garages/{garage}', 'GaragesApiController@show');

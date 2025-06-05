@@ -15,6 +15,7 @@ use Illuminate\Support\Facades\Storage;
 use Laravel\Socialite\Facades\Socialite;
 use Twilio\Rest\Client;
 use Carbon\Carbon;
+use App\Models\Message;
 
 class AuthController extends Controller
 {
@@ -675,5 +676,121 @@ class AuthController extends Controller
                 'message' => 'Failed to send verification code'
             ], 500);
         }
+    }
+
+    public function loadChats(Request $request)
+    {
+        $user = $request->user();
+        
+        // Get all unique chat participants for the authenticated user
+        $chatParticipants = Message::where(function($query) use ($user) {
+                $query->where('sender_id', $user->id)
+                      ->orWhere('receiver_id', $user->id);
+            })
+            ->select('sender_id', 'receiver_id')
+            ->distinct()
+            ->get()
+            ->map(function($message) use ($user) {
+                // Get the other participant's ID
+                return $message->sender_id === $user->id ? $message->receiver_id : $message->sender_id;
+            })
+            ->unique();
+
+        // Get chat summaries
+        $chats = [];
+        foreach ($chatParticipants as $participantId) {
+            $participant = User::find($participantId);
+            if (!$participant) continue;
+
+            // Count unread messages
+            $unreadCount = Message::where('sender_id', $participantId)
+                ->where('receiver_id', $user->id)
+                ->where('status', '!=', 'read')
+                ->count();
+
+            $chats[] = [
+                'name' => $participant->name,
+                'unread_count' => $unreadCount
+            ];
+        }
+
+        return response()->json([
+            'success' => true,
+            'data' => $chats
+        ]);
+    }
+
+    /**
+     * Load all messages between authenticated user and a specific participant
+     *
+     * @param  \Illuminate\Http\Request  $request
+     * @param  int  $participant_id
+     * @return \Illuminate\Http\JsonResponse
+     */
+    public function loadChatMessages(Request $request, $participant_id)
+    {
+        $user = $request->user();
+        
+        // Verify participant exists
+        $participant = User::find($participant_id);
+        if (!$participant) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Participant not found'
+            ], 404);
+        }
+
+        // Get all messages between the two users
+        $messages = Message::where(function($query) use ($user, $participant_id) {
+                $query->where(function($q) use ($user, $participant_id) {
+                    $q->where('sender_id', $user->id)
+                      ->where('receiver_id', $participant_id);
+                })->orWhere(function($q) use ($user, $participant_id) {
+                    $q->where('sender_id', $participant_id)
+                      ->where('receiver_id', $user->id);
+                });
+            })
+            ->with(['sender', 'receiver'])
+            ->orderBy('created_at', 'desc')
+            ->get()
+            ->map(function($message) {
+                return [
+                    'id' => $message->id,
+                    'message' => $message->message,
+                    'sender_id' => $message->sender_id,
+                    'receiver_id' => $message->receiver_id,
+                    'sender_name' => $message->sender->name,
+                    'receiver_name' => $message->receiver->name,
+                    'status' => $message->status,
+                    'created_at' => $message->created_at,
+                    'updated_at' => $message->updated_at
+                ];
+            });
+
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'participant' => [
+                    'id' => $participant->id,
+                    'name' => $participant->name
+                ],
+                'messages' => $messages
+            ]
+        ]);
+    }
+
+    public function markAsRead(Request $request)
+    {
+        $user = $request->user();
+        $participant_id = $request->participant_id;
+        $message = Message::where('sender_id', $participant_id)
+            ->where('receiver_id', $user->id)
+            ->where('status', '!=', 'read')
+            ->update(['status' => 'read']);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Messages marked as read'
+        ]);
     }
 }

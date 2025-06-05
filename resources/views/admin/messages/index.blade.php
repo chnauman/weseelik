@@ -100,7 +100,47 @@
     </div>
 </div>
 
+<div class="card">
+    <div class="card-header">
+        Send Message to User
+    </div>
 
+    <div class="card-body">
+        <form method="POST" action="{{ route('admin.messages.send') }}" enctype="multipart/form-data">
+            @csrf
+            <div class="form-group">
+                <label for="user_id">Select User</label>
+                <select class="form-control select2 {{ $errors->has('user_id') ? 'is-invalid' : '' }}" name="user_id" id="user_id">
+                    <option value="">Select User</option>
+                    @foreach($users as $user)
+                        <option value="{{ $user->id }}">{{ $user->name }}</option>
+                    @endforeach
+                </select>
+                @if($errors->has('user_id'))
+                    <div class="invalid-feedback">
+                        {{ $errors->first('user_id') }}
+                    </div>
+                @endif
+            </div>
+
+            <div class="form-group">
+                <label for="message">Message</label>
+                <textarea class="form-control {{ $errors->has('message') ? 'is-invalid' : '' }}" name="message" id="message" rows="4" required></textarea>
+                @if($errors->has('message'))
+                    <div class="invalid-feedback">
+                        {{ $errors->first('message') }}
+                    </div>
+                @endif
+            </div>
+
+            <div class="form-group">
+                <button class="btn btn-danger" type="submit">
+                    Send Message
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
 
 @endsection
 @section('scripts')

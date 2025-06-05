@@ -70,6 +70,8 @@ Route::group(['prefix' => 'admin', 'as' => 'admin.', 'namespace' => 'Admin', 'mi
     // Message
     Route::delete('messages/destroy', 'MessageController@massDestroy')->name('messages.massDestroy');
     Route::resource('messages', 'MessageController');
+    Route::get('admin-messages', 'AdminMessageController@index')->name('messages.index');
+    Route::post('admin-messages/send', 'AdminMessageController@sendMessage')->name('messages.send');
 
     // Booking
     Route::delete('bookings/destroy', 'BookingController@massDestroy')->name('bookings.massDestroy');
