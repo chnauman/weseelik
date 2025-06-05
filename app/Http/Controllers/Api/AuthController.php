@@ -793,4 +793,53 @@ class AuthController extends Controller
             'message' => 'Messages marked as read'
         ]);
     }
+
+    /**
+     * Send a chat message to a participant
+     *
+     * @param  \Illuminate\Http\Request  $request
+     * @return \Illuminate\Http\JsonResponse
+     */
+    public function sendChatMessage(Request $request)
+    {
+        $request->validate([
+            'participant_id' => 'required|exists:users,id',
+            'message' => 'required|string'
+        ]);
+
+        $user = $request->user();
+        
+        // Create the message
+        $message = Message::create([
+            'sender_id' => $user->id,
+            'receiver_id' => $request->participant_id,
+            'message' => $request->message,
+            'status' => 'undelivered'
+        ]);
+
+        // Load the relationships for the response
+        $message->load(['sender', 'receiver']);
+
+        // Prepare data for broadcasting
+        $messageData = [
+            'id' => $message->id,
+            'message' => $message->message,
+            'sender_id' => $message->sender_id,
+            'receiver_id' => $message->receiver_id,
+            'sender_name' => $message->sender->name,
+            'receiver_name' => $message->receiver->name,
+            'status' => $message->status,
+            'created_at' => $message->created_at,
+            'updated_at' => $message->updated_at
+        ];
+
+        // Broadcast the message to the participant's channel
+        event(new \App\Events\NewMessage($messageData));
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Message sent successfully',
+            'data' => $messageData
+        ]);
+    }
 }

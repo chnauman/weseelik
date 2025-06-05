@@ -67,6 +67,7 @@ Route::group(['prefix' => 'v1', 'as' => 'api.', 'namespace' => 'Api\V1\Admin'], 
         Route::get('/load-chats', [AuthController::class, 'loadChats']);
         Route::get('/load-chat-messages/{participant_id}', [AuthController::class, 'loadChatMessages']);
         Route::post('/mark-as-read', [AuthController::class, 'markAsRead']);
+        Route::post('/send-chat-message', [AuthController::class, 'sendChatMessage']);
     });
 
     Route::middleware('optional.auth')->get('garages/{garage}', 'GaragesApiController@show');

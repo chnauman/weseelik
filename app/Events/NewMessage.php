@@ -23,7 +23,7 @@ class NewMessage implements ShouldBroadcast
 
     public function broadcastOn()
     {
-        return new Channel('wiseelik_2');
+        return new Channel('wiseelik_' . $this->messageData['receiver_id']);
     }
 
     public function broadcastAs()
@@ -33,10 +33,6 @@ class NewMessage implements ShouldBroadcast
 
     public function broadcastWith()
     {
-        return [
-            'sender_id' => $this->messageData['sender_id'],
-            'message' => $this->messageData['message'],
-            'timestamp' => $this->messageData['timestamp']
-        ];
+        return $this->messageData;
     }
 }
