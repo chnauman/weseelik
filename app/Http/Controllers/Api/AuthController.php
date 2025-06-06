@@ -699,7 +699,7 @@ class AuthController extends Controller
         // Get chat summaries
         $chats = [];
         foreach ($chatParticipants as $participantId) {
-            $participant = User::find($participantId);
+            $participant = User::with('garages')->find($participantId);
             if (!$participant) continue;
 
             // Count unread messages
@@ -708,8 +708,14 @@ class AuthController extends Controller
                 ->where('status', '!=', 'read')
                 ->count();
 
+            // Get display name - garage title for business users, name for others
+            $displayName = $participant->type === 'business' && $participant->garages->isNotEmpty() 
+                ? $participant->garages->first()->title 
+                : $participant->name;
+
             $chats[] = [
-                'name' => $participant->name,
+                'id' => $participant->id,
+                'name' => $displayName,
                 'unread_count' => $unreadCount
             ];
         }
