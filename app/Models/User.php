@@ -12,6 +12,13 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Laravel\Sanctum\HasApiTokens;
+use App\Models\Message;
+use App\Models\Garage;
+use App\Models\UserDetail;
+use App\Models\VehicleBrand;
+use App\Models\UserVehicleBrand;
+use App\Models\UserFavorite;
+use App\Models\UserBlock;
 
 class User extends Authenticatable
 {
@@ -139,5 +146,15 @@ class User extends Authenticatable
     public function userVehicleBrands()
     {
         return $this->hasMany(UserVehicleBrand::class);
+    }
+
+    public function messages()
+    {
+        return $this->hasMany(Message::class);
+    }
+
+    public function garages()
+    {
+        return $this->hasMany(Garage::class);
     }
 }
