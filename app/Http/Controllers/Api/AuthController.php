@@ -814,7 +814,7 @@ class AuthController extends Controller
             'sender_id' => $user->id,
             'receiver_id' => $request->participant_id,
             'message' => $request->message,
-            'status' => 'undelivered'
+            'status' => 'unread'
         ]);
 
         // Load the relationships for the response
