@@ -36,6 +36,7 @@ class AdminMessageController extends Controller
         // Prepare data for broadcasting
         $messageData = [
             'sender_id' => Auth::id(),
+            'receiver_id' => $request->user_id,
             'message' => $request->message,
             'timestamp' => now()->toDateTimeString()
         ];
