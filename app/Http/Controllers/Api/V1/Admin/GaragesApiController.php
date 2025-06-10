@@ -699,4 +699,39 @@ class GaragesApiController extends Controller
             ], Response::HTTP_INTERNAL_SERVER_ERROR);
         }
     }
+
+    /**
+     * Get all garages with their locations for map display
+     *
+     * @param  \Illuminate\Http\Request  $request
+     * @return \Illuminate\Http\JsonResponse
+     */
+    public function mapMarkers(Request $request)
+    {
+        $garages = Garage::select([
+            'id',
+            'title',
+            'description',
+            'latitude',
+            'longitude',
+            'status'
+        ])
+        ->where('status', 'active')
+        ->get()
+        ->map(function ($garage) {
+            return [
+                'id' => $garage->id,
+                'title' => $garage->title,
+                'description' => $garage->description,
+                'latitude' => $garage->latitude,
+                'longitude' => $garage->longitude,
+                'image' => $garage->getFirstMediaUrl('logo') ?: $garage->getFirstMediaUrl('storefront_image')
+            ];
+        });
+
+        return response()->json([
+            'success' => true,
+            'data' => $garages
+        ]);
+    }
 }
