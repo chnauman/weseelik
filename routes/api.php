@@ -35,6 +35,8 @@ Route::group(['prefix' => 'v1', 'as' => 'api.', 'namespace' => 'Api\V1\Admin'], 
     // Specialization
     Route::apiResource('specializations', 'SpecializationApiController');
 
+    Route::post('/check-channel', [AuthController::class, 'checkChannel']);
+    
     // Garages
     Route::get('garages/map-markers', 'GaragesApiController@mapMarkers')->name('garages.mapMarkers'); // Public route for map plotting
     Route::post('garages/media', 'GaragesApiController@storeMedia')->name('garages.storeMedia');
@@ -69,6 +71,8 @@ Route::group(['prefix' => 'v1', 'as' => 'api.', 'namespace' => 'Api\V1\Admin'], 
         Route::get('/load-chat-messages/{participant_id}', [AuthController::class, 'loadChatMessages']);
         Route::post('/mark-as-read', [AuthController::class, 'markAsRead']);
         Route::post('/send-chat-message', [AuthController::class, 'sendChatMessage']);
+        Route::post('/update-device-token', [AuthController::class, 'updateDeviceToken']);
+
     });
 
     Route::middleware('optional.auth')->get('garages/{garage}', 'GaragesApiController@show');

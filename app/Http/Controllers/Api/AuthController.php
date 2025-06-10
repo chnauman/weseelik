@@ -547,6 +547,38 @@ class AuthController extends Controller
     }
 
     /**
+     * Update user's device token
+     *
+     * @param  \Illuminate\Http\Request  $request
+     * @return \Illuminate\Http\JsonResponse
+     */
+    public function updateDeviceToken(Request $request)
+    {
+        $request->validate([
+            'device_token' => 'nullable|string',
+        ]);
+
+        try {
+            $user = $request->user();
+            $user->update([
+                'device_token' => $request->device_token
+            ]);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Device token updated successfully',
+                'device_token' => $user->device_token
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to update device token',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
      * Resend verification code to user's phone number
      *
      * @param  \Illuminate\Http\Request  $request
@@ -847,5 +879,46 @@ class AuthController extends Controller
             'message' => 'Message sent successfully',
             'data' => $messageData
         ]);
+    }
+
+    /**
+     * Check if a Pusher channel is vacated by checking its subscription count
+     *
+     * @param  \Illuminate\Http\Request  $request
+     * @return \Illuminate\Http\JsonResponse
+     */
+    public function checkChannel(Request $request)
+    {
+        $request->validate([
+            'channel_name' => 'required|string'
+        ]);
+
+        try {
+            $pusher = new \Pusher\Pusher(
+                config('broadcasting.connections.pusher.key'),
+                config('broadcasting.connections.pusher.secret'),
+                config('broadcasting.connections.pusher.app_id'),
+                config('broadcasting.connections.pusher.options')
+            );
+
+            // Get channel info from Pusher
+            $channelInfo = $pusher->get('/channels/' . $request->channel_name);
+            
+            // Check if channel exists and get subscription count
+            $isVacated = !isset($channelInfo['subscription_count']) || $channelInfo['subscription_count'] === 0;
+
+            return response()->json([
+                'success' => true,
+                'is_vacated' => $isVacated,
+                'subscription_count' => $channelInfo['subscription_count'] ?? 0
+            ]);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to check channel status',
+                'error' => $e->getMessage()
+            ], 500);
+        }
     }
 }

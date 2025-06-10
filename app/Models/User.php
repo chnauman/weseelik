@@ -51,6 +51,7 @@ class User extends Authenticatable
         'remember_token',
         'type',
         'is_profile_complete',
+        'device_token',
         'created_at',
         'updated_at',
         'deleted_at',

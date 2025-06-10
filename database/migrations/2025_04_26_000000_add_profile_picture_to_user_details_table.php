@@ -9,14 +9,14 @@ class AddProfilePictureToUserDetailsTable extends Migration
     public function up()
     {
         Schema::table('user_details', function (Blueprint $table) {
-            $table->string('avatar')->nullable()->after('longitude');
+            //$table->string('avatar')->nullable()->after('longitude');
         });
     }
 
     public function down()
     {
         Schema::table('user_details', function (Blueprint $table) {
-            $table->dropColumn('avatar');
+            //$table->dropColumn('avatar');
         });
     }
 }

@@ -716,7 +716,7 @@ class GaragesApiController extends Controller
             'longitude',
             'status'
         ])
-        ->where('status', 'active')
+        ->whereRaw('LOWER(status) = ?', ['approved'])
         ->get()
         ->map(function ($garage) {
             return [
