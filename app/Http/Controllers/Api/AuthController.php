@@ -16,13 +16,17 @@ use Laravel\Socialite\Facades\Socialite;
 use Twilio\Rest\Client;
 use Carbon\Carbon;
 use App\Models\Message;
+use App\Services\FCMService;
 
 class AuthController extends Controller
 {
     protected $twilioClient;
+    protected $fcmService;
 
-    public function __construct()
+    public function __construct(FCMService $fcmService)
     {
+        $this->fcmService = $fcmService;
+
         $this->twilioClient = new Client(
             config('services.twilio.sid'),
             config('services.twilio.auth_token')
@@ -846,7 +850,7 @@ class AuthController extends Controller
         ]);
 
         $user = $request->user();
-        
+
         // Create the message
         $message = Message::create([
             'sender_id' => $user->id,
@@ -855,30 +859,69 @@ class AuthController extends Controller
             'status' => 'unread'
         ]);
 
-        // Load the relationships for the response
-        $message->load(['sender', 'receiver']);
+        $channelName = 'wiseelik_' .  $request->participant_id;
 
-        // Prepare data for broadcasting
-        $messageData = [
-            'id' => $message->id,
-            'message' => $message->message,
-            'sender_id' => $message->sender_id,
-            'receiver_id' => $message->receiver_id,
-            'sender_name' => $message->sender->name,
-            'receiver_name' => $message->receiver->name,
-            'status' => $message->status,
-            'created_at' => $message->created_at,
-            'updated_at' => $message->updated_at
-        ];
 
-        // Broadcast the message to the participant's channel
-        event(new \App\Events\NewMessage($messageData));
+        if($this->isReceiverOnline($channelName)) {
+            // Load the relationships for the response
+            $message->load(['sender', 'receiver']);
 
-        return response()->json([
-            'success' => true,
-            'message' => 'Message sent successfully',
-            'data' => $messageData
-        ]);
+            // Prepare data for broadcasting
+            $messageData = [
+                'id' => $message->id,
+                'message' => $message->message,
+                'sender_id' => $message->sender_id,
+                'receiver_id' => $message->receiver_id,
+                'sender_name' => $message->sender->name,
+                'receiver_name' => $message->receiver->name,
+                'status' => $message->status,
+                'created_at' => $message->created_at,
+                'updated_at' => $message->updated_at
+            ];
+
+            // Broadcast the message to the participant's channel
+            event(new \App\Events\NewMessage($messageData));
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Message sent successfully',
+                'data' => $messageData
+            ]);
+        } else {
+            $result = $this->fcmService->sendNotification(
+                $message->receiver_id,
+                "From: ".$message->sender->name,
+                $message->message
+            );
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Message sent successfully',
+                'data' => "FCM Notification sent"
+            ]);
+        }
+    }
+
+    public function isReceiverOnline($receiver_channel_name)
+    {
+        try {
+            $pusher = new \Pusher\Pusher(
+                config('broadcasting.connections.pusher.key'),
+                config('broadcasting.connections.pusher.secret'),
+                config('broadcasting.connections.pusher.app_id'),
+                config('broadcasting.connections.pusher.options')
+            );
+
+            // Get channel info from Pusher
+            $channelInfo = $pusher->get('/channels/' . $receiver_channel_name);
+            
+            // Check if channel is occupied
+            return $channelInfo->occupied;
+
+        } catch (\Exception $e) {
+            return false;
+        }
+        
     }
 
     /**
@@ -904,13 +947,13 @@ class AuthController extends Controller
             // Get channel info from Pusher
             $channelInfo = $pusher->get('/channels/' . $request->channel_name);
             
-            // Check if channel exists and get subscription count
-            $isVacated = !isset($channelInfo['subscription_count']) || $channelInfo['subscription_count'] === 0;
+            // Check if channel is occupied
+            $isVacated = !$channelInfo->occupied;
 
             return response()->json([
                 'success' => true,
                 'is_vacated' => $isVacated,
-                'subscription_count' => $channelInfo['subscription_count'] ?? 0
+                'occupied' => $channelInfo->occupied
             ]);
 
         } catch (\Exception $e) {

@@ -112,4 +112,6 @@ Route::group(['prefix' => 'v1', 'as' => 'api.', 'namespace' => 'Api\V1\Admin'], 
 
     // Work Shift
     Route::apiResource('work-shifts', 'WorkShiftApiController');
+
+    Route::post('/send-notification', [App\Http\Controllers\NotificationController::class, 'sendNotification']);
 });
