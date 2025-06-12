@@ -66,6 +66,8 @@ class FCMService
                 ]
             ]);
 
+            dd($response->json());
+
         if (!$response->successful()) {
             Log::error('FCM Notification failed', [
                 'user_id' => $userId,
