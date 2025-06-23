@@ -15,8 +15,29 @@
                         </div>
                     @endif
 
-                    You are logged in!
+                    <h4>Garages Count by Area</h4>
+                    <table class="table table-bordered">
+                        <thead>
+                            <tr>
+                                <th>Area</th>
+                                <th>Total Garages</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @forelse($garagesByArea as $row)
+                                <tr>
+                                    <td>{{ $row->area ?? 'N/A' }}</td>
+                                    <td>{{ $row->total }}</td>
+                                </tr>
+                            @empty
+                                <tr>
+                                    <td colspan="2">No data available</td>
+                                </tr>
+                            @endforelse
+                        </tbody>
+                    </table>
                 </div>
+
             </div>
         </div>
     </div>
