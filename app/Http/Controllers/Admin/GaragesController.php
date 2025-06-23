@@ -218,4 +218,13 @@ class GaragesController extends Controller
 
         return redirect()->route('admin.garages.index')->with('message', 'Garage assigned successfully');
     }
+
+    public function garagesWithoutArea()
+    {
+        $garages = Garage::whereNull('area')
+            ->orWhere('area', '')
+            ->get();
+
+        return view('admin.garages-without-area', compact('garages'));
+    }
 }

@@ -17,6 +17,7 @@ Auth::routes(['register' => false]);
 
 Route::group(['prefix' => 'admin', 'as' => 'admin.', 'namespace' => 'Admin', 'middleware' => ['auth']], function () {
     Route::get('/', 'HomeController@index')->name('home');
+
     // Permissions
     Route::delete('permissions/destroy', 'PermissionsController@massDestroy')->name('permissions.massDestroy');
     Route::resource('permissions', 'PermissionsController');
@@ -88,6 +89,8 @@ Route::group(['prefix' => 'admin', 'as' => 'admin.', 'namespace' => 'Admin', 'mi
     // Work Shift
     Route::delete('work-shifts/destroy', 'WorkShiftController@massDestroy')->name('work-shifts.massDestroy');
     Route::resource('work-shifts', 'WorkShiftController');
+
+    Route::get('/garages-without-area', 'GaragesController@garagesWithoutArea')->name('garages.withoutArea');
 });
 Route::group(['prefix' => 'profile', 'as' => 'profile.', 'namespace' => 'Auth', 'middleware' => ['auth']], function () {
     // Change password
