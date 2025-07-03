@@ -3,6 +3,7 @@
 use App\Models\User;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Route;
+use App\Http\Controllers\JsonEditorController;
 
 Route::redirect('/', '/login');
 Route::get('/home', function () {
@@ -108,3 +109,7 @@ Route::get('/token', function () {
     $token = $user->createToken('auth_token')->plainTextToken;
     echo $token;
 });
+
+// web.php
+Route::get('/json-editor', [JsonEditorController::class, 'index']);
+Route::post('/json-editor/save', [JsonEditorController::class, 'save'])->name('json-editor.save');

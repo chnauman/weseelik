@@ -187,6 +187,13 @@
                 </a>
             </li>
         @endcan
+        <li class="c-sidebar-nav-item">
+            <a href="{{ url('/json-editor') }}" class="c-sidebar-nav-link {{ request()->is('json-editor') ? 'c-active' : '' }}">
+                <i class="fa-fw fas fa-language c-sidebar-nav-icon"></i>
+                {{ trans('global.translations') }}
+                <span style="font-size: 0.85em; margin-left: 6px; color: #888;">EN | AR</span>
+            </a>
+        </li>
         @if(file_exists(app_path('Http/Controllers/Auth/ChangePasswordController.php')))
             @can('profile_password_edit')
                 <li class="c-sidebar-nav-item">
