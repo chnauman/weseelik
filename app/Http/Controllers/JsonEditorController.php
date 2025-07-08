@@ -28,4 +28,18 @@ class JsonEditorController extends Controller
         file_put_contents(storage_path("app/{$lang}.json"), json_encode($decoded, JSON_PRETTY_PRINT));
         return back()->with(['success' => 'JSON updated!', 'lang' => $lang]);
     }
+
+    public function getArJson()
+    {
+        $jsonPath = storage_path('app/ar.json');
+        $jsonData = file_exists($jsonPath) ? json_decode(file_get_contents($jsonPath), true) : null;
+        return response()->json($jsonData);
+    }
+
+    public function getEnJson()
+    {
+        $jsonPath = storage_path('app/en.json');
+        $jsonData = file_exists($jsonPath) ? json_decode(file_get_contents($jsonPath), true) : null;
+        return response()->json($jsonData);
+    }
 }

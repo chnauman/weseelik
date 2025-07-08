@@ -2,7 +2,7 @@
 
 use App\Http\Controllers\Api\AuthController;
 use Illuminate\Support\Facades\Route;
-
+use App\Http\Controllers\JsonEditorController;
 
 
 // Protected Routes
@@ -36,7 +36,7 @@ Route::group(['prefix' => 'v1', 'as' => 'api.', 'namespace' => 'Api\V1\Admin'], 
     Route::apiResource('specializations', 'SpecializationApiController');
 
     Route::post('/check-channel', [AuthController::class, 'checkChannel']);
-    
+
     // Garages
     Route::get('garages/map-markers', 'GaragesApiController@mapMarkers')->name('garages.mapMarkers'); // Public route for map plotting
     Route::post('garages/media', 'GaragesApiController@storeMedia')->name('garages.storeMedia');
@@ -114,4 +114,7 @@ Route::group(['prefix' => 'v1', 'as' => 'api.', 'namespace' => 'Api\V1\Admin'], 
     Route::apiResource('work-shifts', 'WorkShiftApiController');
 
     Route::post('/send-notification', [App\Http\Controllers\NotificationController::class, 'sendNotification']);
+
+    Route::get('translations/ar', [JsonEditorController::class, 'getArJson'])->name('translations.ar');
+    Route::get('translations/en', [JsonEditorController::class, 'getEnJson'])->name('translations.en');
 });
