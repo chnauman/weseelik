@@ -322,6 +322,7 @@ class GaragesApiController extends Controller
                 'garages.longitude',
                 'garages.no_of_visits',
                 'garages.no_of_likes',
+                'garages.user_id',
                 DB::raw("(
                     6371 * acos(
                         cos(radians($latitude)) *
@@ -417,6 +418,7 @@ class GaragesApiController extends Controller
                 'garages.longitude',
                 'garages.no_of_visits',
                 'garages.no_of_likes',
+                'garages.user_id',
                 DB::raw('CASE WHEN user_favorites.id IS NOT NULL THEN 1 ELSE 0 END as is_favorite'),
                 DB::raw('user_favorites.id as favorite_id'),
                 DB::raw('user_favorites.note as favorite_note')
@@ -476,7 +478,8 @@ class GaragesApiController extends Controller
                         ->orWhere('address', 'like', "%{$query}%")
                         ->orWhere('service_description', 'like', "%{$query}%")
                         ->orWhereHas('tags', function ($q) use ($query) {
-                            $q->where('title', 'like', "%{$query}%");
+                            $q->where('title', 'like', "%{$query}%")
+                              ->orWhere('english_title', 'like', "%{$query}%");
                         })
                         ->orWhereHas('services', function ($q) use ($query) {
                             $q->where('title', 'like', "%{$query}%");
