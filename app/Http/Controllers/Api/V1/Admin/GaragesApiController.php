@@ -379,7 +379,8 @@ class GaragesApiController extends Controller
                     'no_of_likes' => $garage->no_of_likes,
                     'logo' => $garage->logo,
                     'storefront_image' => $garage->storefront_image,
-                    'gallery' => $garage->gallery
+                    'gallery' => $garage->gallery,
+                    'user_id' => $garage->user_id
                 ];
 
                 // Add is_favorite if it exists
