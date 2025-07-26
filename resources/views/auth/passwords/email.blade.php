@@ -3,10 +3,11 @@
 <div class="row justify-content-center">
     <div class="col-md-6">
         <div class="card mx-4">
-            <div class="card-body p-4">
-                <h1>{{ trans('panel.site_title') }}</h1>
+            <div class="card-body p-4 bg-secondary">
+                <!-- <h1>{{ trans('panel.site_title') }}</h1> -->
+                 <a href="{{ route('password.request') }}"><img src="{{ asset('images/wiseelik-logo-mascot.png') }}" alt="{{ trans('panel.site_title') }}" class="img-fluid"></a>
 
-                <p class="text-muted">{{ trans('global.reset_password') }}</p>
+                <p class="text-muted ml-2">{{ trans('global.reset_password') }}</p>
 
                 @if(session('status'))
                     <div class="alert alert-success" role="alert">

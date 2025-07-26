@@ -5,7 +5,16 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\JsonEditorController;
 
-Route::redirect('/', '/login');
+Route::get('/', function () {
+    return view('user.home');
+})->name('home');
+Route::get('/privacy-policy', function () {
+    return view('user.privacy-policy');
+})->name('privacy-policy');
+Route::get('/terms-and-conditions', function () {
+    return view('user.terms-conditions');
+})->name('terms-of-service');
+Route::redirect('/admin', '/login');
 Route::get('/home', function () {
     if (session('status')) {
         return redirect()->route('admin.home')->with('status', session('status'));
