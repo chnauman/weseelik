@@ -22,6 +22,10 @@ class StoreTagRequest extends FormRequest
                 'required',
                 'unique:tags',
             ],
+            'english_title' => [
+                'nullable',
+                'string',
+            ],
         ];
     }
 }

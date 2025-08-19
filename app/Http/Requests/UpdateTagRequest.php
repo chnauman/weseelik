@@ -22,6 +22,10 @@ class UpdateTagRequest extends FormRequest
                 'required',
                 'unique:tags,title,' . request()->route('tag')->id,
             ],
+            'english_title' => [
+                'nullable',
+                'string',
+            ],
         ];
     }
 }

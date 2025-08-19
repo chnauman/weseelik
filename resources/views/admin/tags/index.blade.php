@@ -29,6 +29,9 @@
                             {{ trans('cruds.tag.fields.title') }}
                         </th>
                         <th>
+                            {{ trans('cruds.tag.fields.english_title') }}
+                        </th>
+                        <th>
                             &nbsp;
                         </th>
                     </tr>
@@ -44,6 +47,9 @@
                             </td>
                             <td>
                                 {{ $tag->title ?? '' }}
+                            </td>
+                            <td>
+                                {{ $tag->english_title ?? '' }}
                             </td>
                             <td>
                                 @can('tag_show')

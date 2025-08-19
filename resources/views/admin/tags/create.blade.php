@@ -20,6 +20,16 @@
                 <span class="help-block">{{ trans('cruds.tag.fields.title_helper') }}</span>
             </div>
             <div class="form-group">
+                <label for="english_title">{{ trans('cruds.tag.fields.english_title') }}</label>
+                <input class="form-control {{ $errors->has('english_title') ? 'is-invalid' : '' }}" type="text" name="english_title" id="english_title" value="{{ old('english_title', '') }}">
+                @if($errors->has('english_title'))
+                    <div class="invalid-feedback">
+                        {{ $errors->first('english_title') }}
+                    </div>
+                @endif
+                <span class="help-block">{{ trans('cruds.tag.fields.english_title_helper') }}</span>
+            </div>
+            <div class="form-group">
                 <button class="btn btn-danger" type="submit">
                     {{ trans('global.save') }}
                 </button>

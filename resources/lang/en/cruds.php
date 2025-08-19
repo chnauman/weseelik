@@ -107,6 +107,8 @@ return [
             'id_helper'         => ' ',
             'title'             => 'Title',
             'title_helper'      => ' ',
+            'english_title'     => 'English Title',
+            'english_title_helper' => ' ',
             'created_at'        => 'Created at',
             'created_at_helper' => ' ',
             'updated_at'        => 'Updated at',
