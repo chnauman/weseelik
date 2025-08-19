@@ -52,6 +52,10 @@
                     All Garages (with Filters)
                 </div>
                 <div class="card-body">
+                    @php
+                        $allTags = \App\Models\Tag::pluck('title');
+                        $allSpecializations = \App\Models\Specialization::pluck('title');
+                    @endphp
                     <table id="all-garages-table" class="table table-bordered table-striped">
                         <thead>
                             <tr>
@@ -60,6 +64,8 @@
                                 <th>Area</th>
                                 <th>Status</th>
                                 <th>Owner</th>
+                                <th>Tags</th>
+                                <th>Specializations</th>
                                 <th>Created At</th>
                                 {{-- Add more columns as needed --}}
                             </tr>
@@ -82,17 +88,35 @@
                                     </select>
                                 </th>
                                 <th><input type="text" placeholder="Search Owner" class="form-control form-control-sm" /></th>
+                                <th>
+                                    <select class="form-control form-control-sm">
+                                        <option value="">All</option>
+                                        @foreach(($allTags ?? collect()) as $tagTitle)
+                                            <option value="{{ $tagTitle }}">{{ $tagTitle }}</option>
+                                        @endforeach
+                                    </select>
+                                </th>
+                                <th>
+                                    <select class="form-control form-control-sm">
+                                        <option value="">All</option>
+                                        @foreach(($allSpecializations ?? collect()) as $specTitle)
+                                            <option value="{{ $specTitle }}">{{ $specTitle }}</option>
+                                        @endforeach
+                                    </select>
+                                </th>
                                 <th><input type="text" placeholder="Search Date" class="form-control form-control-sm" /></th>
                             </tr>
                         </thead>
                         <tbody>
-                            @foreach(\App\Models\Garage::with('user')->get() as $garage)
+                            @foreach(\App\Models\Garage::with(['user', 'tags', 'specializations'])->get() as $garage)
                                 <tr>
                                     <td>{{ $garage->id }}</td>
                                     <td>{{ $garage->title }}</td>
                                     <td>{{ $garage->area }}</td>
                                     <td>{{ $garage->status }}</td>
                                     <td>{{ $garage->user->name ?? 'N/A' }}</td>
+                                    <td>{{ $garage->tags->pluck('title')->implode(', ') }}</td>
+                                    <td>{{ $garage->specializations->pluck('title')->implode(', ') }}</td>
                                     <td>{{ $garage->created_at }}</td>
                                     {{-- Add more columns as needed --}}
                                 </tr>
