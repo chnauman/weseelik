@@ -13,6 +13,8 @@ class HomeController
         ->orderByDesc('total')
         ->get();
 
-        return view('home', compact('garagesByArea'));
+        $areas = Garage::select('area')->distinct()->pluck('area')->filter()->values();
+
+        return view('home', compact('garagesByArea', 'areas'));
     }
 }
