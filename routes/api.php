@@ -3,12 +3,24 @@
 use App\Http\Controllers\Api\AuthController;
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\JsonEditorController;
-
+use App\Http\Controllers\ChatController;
 
 // Protected Routes
 Route::middleware('auth:sanctum')->group(function () {
     Route::post('/logout', [AuthController::class, 'logout']);
     Route::get('/user', [AuthController::class, 'user']);
+});
+
+
+Route::get('/welcome', function () {
+    echo "Welcome to the API";
+});
+
+Route::group(['prefix' => 'v1', 'as' => 'api.'], function () {
+    Route::post('chat', [ChatController::class, 'handleChat'])->name('chat');
+    Route::get('ping', function () {
+        return response()->json(['status' => 'ok']);
+    });
 });
 
 Route::group(['prefix' => 'v1', 'as' => 'api.', 'namespace' => 'Api\V1\Admin'], function () {
