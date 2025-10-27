@@ -51,6 +51,14 @@ class ChatController extends Controller
             'created_at' => now(),
         ]);
 
+        $tags = DB::table('tags')->pluck('title')->implode(', ');
+
+        $specializations = DB::table('specializations')->pluck('title')->implode(', ');
+
+        $services = DB::table('services')->pluck('title')->implode(', ');
+
+        $categories = DB::table('categories')->pluck('title')->implode(', ');
+
         // Load recent history and prepend system prompt (typo fixed)
         $history = DB::table('conversation_messages')
             ->where('conversation_id', $conversation->id)
@@ -66,23 +74,30 @@ class ChatController extends Controller
 
         array_unshift($history, [
             'role' => 'system',
-            'content' => "You are a polite, human-like Lost and Found chatbot agent for Miami International Airport.
-             Your job is to help travelers report or claim lost items. Always greet user warmly but not too formal.
-             Always stay calm, and concise — reply in 1-2  lines, or rarely 3 short lines when it feels natural.
-             Sometimes you can give suggestions to the user about the immediate action to take. 
-             like: if user says I lost my wallet, you can suggest the user to block the cards first.
-             Use the tools provided to help the user.
-             If the user asks a question that is not related to the tools, respond very politely and humanly.
-             When you know to which tool the user is referring, collect all required details in conversational manner
-             but before asking user see what you can infer from the chat history and the current message. If you have to 
-             repeat the question, rephrase it. Do not just repeat the question verbatim until very necessary.
-             Never ask the user to provide everything at once. Ask one question at a time but make it conversational and natural.
-             if you require user's email, make sure that the user provides a valid email address in the correct format.
-             **Never ask unnecessary or obvious questions.** If information can be inferred from chat history 
-             or the current message, use it directly.
-             Respond naturally like a human, not robotic. Be efficient and empathetic.
-             **Once all parameters are gathered, call the function automatically and confirm politely.**
-             "
+            'content' => "
+                You are a polite, human-like Garage Finder chatbot agent for the Kuwait Region.
+                Your job is to help people find a garage based on their needs. Always greet the user warmly but casually.
+                Be calm, concise, and human — usually reply in 1–2 lines, or rarely 3 short lines when it feels natural.
+
+                You can use the following information to understand the user’s intent and help find a garage:
+                - Tags: $tags
+                - Specializations: $specializations
+                - Services: $services
+                - Categories: $categories
+
+                When the user describes a problem (e.g., 'my car’s AC is not cooling'), intelligently map it to relevant tags, services, specializations, or categories, and pass them in the function call as arrays:
+                - 'selected_tags': inferred issue tags
+                - 'selected_specializations': relevant expertise or brand specialization
+                - 'selected_services': relevant garage services
+                - 'selected_categories': relevant garage category
+
+                Rules:
+                - Use whatever details are available from the user or chat history.
+                - Never ask for all parameters at once. Gather naturally, one by one.
+                - Never ask for obvious info (e.g., if the user says 'in Salmiya', don’t ask 'Where are you located?').
+                - Once enough info is available, call the function automatically and politely confirm.
+                - If the query is unrelated to garage services, reply politely that you can only help with the available tools.
+                "
         ]);
 
         //return response()->json($history);
@@ -91,95 +106,94 @@ class ChatController extends Controller
             [
                 'type' => 'function',
                 'function' => [
-                    'name' => 'reportLostItem',
-                    'description' => 'Report a newly lost item at MIA Lost & Found.',
+                    'name' => 'findGarage',
+                    'description' => 'Find a garage based on the user’s provided details, filters, and preferences.',
                     'parameters' => [
                         'type' => 'object',
                         'properties' => [
-                            'item_description' => [
+                            'location' => [
                                 'type' => 'string',
-                                'description' => 'Describe the lost item.'
+                                'description' => 'The location or area name where the user wants to find a garage.'
                             ],
-                            'lost_location' => [
+                            'vehicle_brand' => [
                                 'type' => 'string',
-                                'description' => 'Where it was last seen.'
+                                'description' => 'Brand of the vehicle, e.g., Toyota, Honda, Nissan, etc.'
                             ],
-                            'date_lost' => [
+                            'vehicle_model' => [
                                 'type' => 'string',
+                                'description' => 'Model of the vehicle.'
                             ],
-                            'owner_name' => [
+                            'vehicle_year' => [
                                 'type' => 'string',
+                                'description' => 'Manufacturing year of the vehicle.'
                             ],
-                            'contact_email' => [
-                                'type' => 'string',
-                                'description' => 'Please verify email address format. Example: example@example.com'
+                            'selected_tags' => [
+                                'type' => 'array',
+                                'items' => [
+                                    'type' => 'string'
+                                ],
+                                'description' => 'Tags inferred from the user’s problem or request (e.g., "oil change", "flat tire").'
                             ],
-                            'contact_phone' => [
-                                'type' => 'string',
+                            'selected_specializations' => [
+                                'type' => 'array',
+                                'items' => [
+                                    'type' => 'string'
+                                ],
+                                'description' => 'Specific vehicle or service specializations relevant to the user’s need.'
                             ],
-                            'flight_number' => [
-                                'type' => 'string',
-                                'description' => 'Optional.'
+                            'selected_services' => [
+                                'type' => 'array',
+                                'items' => [
+                                    'type' => 'string'
+                                ],
+                                'description' => 'Specific garage services (e.g., AC repair, engine tuning, car wash).'
                             ],
-                            'additional_details' => [
-                                'type' => 'string',
-                                'description' => 'Optional notes.'
+                            'selected_categories' => [
+                                'type' => 'array',
+                                'items' => [
+                                    'type' => 'string'
+                                ],
+                                'description' => 'Garage business categories, such as "mechanic", "electrician", or "tire shop".'
                             ],
                         ],
-                        'required' => ['item_description', 'lost_location', 'date_lost', 'owner_name', 'contact_email'],
                     ],
                 ],
             ],
             [
                 'type' => 'function',
                 'function' => [
-                    'name' => 'claimFoundItem',
-                    'description' => 'Submit a claim for a found item.',
+                    'name' => 'listGarages',
+                    'description' => 'List all garages in the region.',
                     'parameters' => [
                         'type' => 'object',
                         'properties' => [
-                            'item_id' => ['type' => 'string'],
-                            'owner_name' => ['type' => 'string'],
-                            'contact_email' => ['type' => 'string', 'description' => 'Please verify email address format. Example: example@example.com'],
-                            'contact_phone' => ['type' => 'string'],
-                            'proof_of_ownership' => ['type' => 'string', 'description' => 'Optional.'],
-                            'pickup_preference' => [
-                                'type' => 'string',
-                                'enum' => ['in_person', 'courier'],
-                            ],
+                            'location' => ['type' => 'string'],
+                            'vehicle_brand' => ['type' => 'string'],
+                            'vehicle_model' => ['type' => 'string'],
+                            'vehicle_year' => ['type' => 'string'],
                         ],
-                        'required' => ['item_id', 'owner_name', 'contact_email'],
+                        'required' => ['location', 'vehicle_brand', 'vehicle_model', 'vehicle_year'],
                     ],
                 ]
             ],
             [
                 'type' => 'function',
                 'function' => [
-                    'name' => 'checkItemStatus',
-                    'description' => 'Check the status of a report or claim.',
+                    'name' => 'getGarageDetails',
+                    'description' => 'Get the details of a garage.',
                     'parameters' => [
                         'type' => 'object',
                         'properties' => [
-                            'reference_number' => ['type' => 'string'],
-                            'contact_email' => ['type' => 'string', 'description' => 'Please verify email address format. Example: example@example.com'],
-                        ],
-                    ],
-                ]
-            ],
-            [
-                'type' => 'function',
-                'function' => [
-                    'name' => 'bookPickupAppointment',
-                    'description' => 'Book an in-person pickup appointment.',
-                    'parameters' => [
-                        'type' => 'object',
-                        'properties' => [
-                            'reference_number' => ['type' => 'string'],
-                            'date' => ['type' => 'string'],
-                            'time_slot' => ['type' => 'string'],
-                            'full_name' => ['type' => 'string'],
-                            'id_type' => ['type' => 'string'],
-                            'id_number' => ['type' => 'string'],
+                            'garage_id' => ['type' => 'string'],
+                            'location' => ['type' => 'string'],
+                            'garage_name' => ['type' => 'string'],
+                            'garage_address' => ['type' => 'string'],
+                            'garage_phone' => ['type' => 'string'],
+                            'garage_email' => ['type' => 'string'],
+                            'garage_website' => ['type' => 'string'],
+                            'garage_logo' => ['type' => 'string'],
+                            'garage_storefront_image' => ['type' => 'string'],
+                            'garage_gallery' => ['type' => 'string'],
                         ],
                     ],
                 ]
@@ -187,13 +201,35 @@ class ChatController extends Controller
             [
                 'type' => 'function',
                 'function' => [
-                    'name' => 'listRecentFoundItems',
-                    'description' => 'List recently found items.',
+                    'name' => 'getGarageServices',
+                    'description' => 'Get the services of a garage.',
                     'parameters' => [
                         'type' => 'object',
                         'properties' => [
-                            'category' => ['type' => 'string'],
+                            'garage_id' => ['type' => 'string'],
+                            'service_name' => ['type' => 'string'],
+                            'service_description' => ['type' => 'string'],
+                            'service_price' => ['type' => 'string'],
+                            'service_duration' => ['type' => 'string'],
+                            'service_image' => ['type' => 'string'],
+                        ],
+                    ],
+                ]
+            ],
+            [
+                'type' => 'function',
+                'function' => [
+                    'name' => 'getGarageReviews',
+                    'description' => 'Get the reviews of a garage.',
+                    'parameters' => [
+                        'type' => 'object',
+                        'properties' => [
+                            'garage_id' => ['type' => 'string'],
+                            'service_name' => ['type' => 'string'],
                             'date_range' => ['type' => 'string'],
+                            'garage_name' => ['type' => 'string'],
+                            'garage_address' => ['type' => 'string'],
+                            'garage_phone' => ['type' => 'string'],
                         ],
                     ],
                 ]
@@ -288,73 +324,73 @@ class ChatController extends Controller
     private function dispatchTool(string $name, array $args)
     {
         switch ($name) {
-            case 'reportLostItem':
-                return $this->toolReportLostItem($args);
-            case 'claimFoundItem':
-                return $this->toolClaimFoundItem($args);
-            case 'checkItemStatus':
-                return $this->toolCheckItemStatus($args);
-            case 'bookPickupAppointment':
-                return $this->toolBookPickupAppointment($args);
-            case 'listRecentFoundItems':
-                return $this->toolListRecentFoundItems($args);
+            case 'findGarage':
+                return $this->toolFindGarage($args);
+            case 'listGarages':
+                return $this->toolListGarages($args);
+            case 'getGarageDetails':
+                return $this->toolGetGarageDetails($args);
+            case 'getGarageServices':
+                return $this->toolGetGarageServices($args);
+            case 'getGarageReviews':
+                return $this->toolGetGarageReviews($args);
             default:
                 return ['error' => 'Unknown tool: ' . $name];
         }
     }
 
-    private function toolReportLostItem(array $args)
+    private function toolFindGarage(array $args)
     {
         // TODO: Replace with real implementation (persist lost item report)
         return [
             'status' => 'ok',
-            'action' => 'report_lost_item',
+            'action' => 'find_garage',
             'received' => $args,
-            'message' => 'Lost item reported. A case reference will be emailed shortly.',
+            'message' => 'Garage found. A case reference will be emailed shortly.',
         ];
     }
 
-    private function toolClaimFoundItem(array $args)
+    private function toolListGarages(array $args)
     {
         // TODO: Replace with real implementation (create claim)
         return [
             'status' => 'ok',
-            'action' => 'claim_found_item',
+            'action' => 'list_garages',
             'received' => $args,
-            'message' => 'Claim submitted. We will verify ownership and get back to you.',
+            'message' => 'Garages listed. We will verify ownership and get back to you.',
         ];
     }
 
-    private function toolCheckItemStatus(array $args)
+    private function toolGetGarageDetails(array $args)
     {
         // TODO: Replace with real implementation (lookup by reference/email)
         return [
             'status' => 'ok',
-            'action' => 'check_item_status',
+            'action' => 'get_garage_details',
             'received' => $args,
-            'result' => 'Reference not found in demo. Please ensure the reference is correct.',
+            'result' => 'Garage details not found. Please ensure the garage id is correct.',
         ];
     }
 
-    private function toolBookPickupAppointment(array $args)
+    private function toolGetGarageServices(array $args)
     {
         // TODO: Replace with real implementation (schedule appointment)
         return [
             'status' => 'ok',
-            'action' => 'book_pickup_appointment',
+            'action' => 'get_garage_services',
             'received' => $args,
-            'message' => 'Appointment request received. You will receive a confirmation email.',
+            'message' => 'Garage services not found. Please ensure the garage id is correct.',
         ];
     }
 
-    private function toolListRecentFoundItems(array $args)
+    private function toolGetGarageReviews(array $args)
     {
         // TODO: Replace with real implementation (query recent found items)
         return [
             'status' => 'ok',
-            'action' => 'list_recent_found_items',
+            'action' => 'get_garage_reviews',
             'received' => $args,
-            'items' => [],
+            'message' => 'Garage reviews not found. Please ensure the garage id is correct.',
         ];
     }
 }
