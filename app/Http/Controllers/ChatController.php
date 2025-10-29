@@ -25,7 +25,7 @@ class ChatController extends Controller
         $model = env('OPENAI_MODEL', 'gpt-4o-mini');
         $temperature = env('OPENAI_TEMPERATURE', 0.7);
         // Resolve or create conversation (supports guests via session id)
-        $conversation = null;
+        $conversation = "D48gplIG16p0JUrrxJk5t0B471hvsEOOINaIoCUs";
         
         if (!empty($validated['conversation_id'])) {
             $conversation = DB::table('conversations')->where('session_id', $validated['conversation_id'])->first();
