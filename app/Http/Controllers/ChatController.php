@@ -395,56 +395,307 @@ class ChatController extends Controller
 
     private function toolFindGarage(array $args)
     {
-        // TODO: Replace with real implementation (persist lost item report)
+        $location = $args['location'] ?? null;
+        $selectedTags = $args['selected_tags'] ?? [];
+        $selectedServices = $args['selected_services'] ?? [];
+        $selectedSpecializations = $args['selected_specializations'] ?? [];
+        $selectedCategories = $args['selected_categories'] ?? [];
+
+        // Kuwait country ID is 112
+        $query = Garage::query()
+            ->where('status', 'approved')
+            ->where('is_available', true)
+            ->where('country_id', 112) // Only show garages in Kuwait
+            ->whereNull('deleted_at');
+
+        // Filter by location (area, city, address)
+        if ($location) {
+            $query->where(function ($q) use ($location) {
+                $q->where('area', 'like', "%{$location}%")
+                    ->orWhere('city', 'like', "%{$location}%")
+                    ->orWhere('address', 'like', "%{$location}%")
+                    ->orWhere('governate', 'like', "%{$location}%");
+            });
+        }
+
+        // Filter by tags
+        if (!empty($selectedTags)) {
+            $query->whereHas('tags', function ($q) use ($selectedTags) {
+                $q->where(function ($subQ) use ($selectedTags) {
+                    foreach ($selectedTags as $tag) {
+                        $subQ->orWhere('title', 'like', "%{$tag}%")
+                            ->orWhere('english_title', 'like', "%{$tag}%");
+                    }
+                })->whereNull('tags.deleted_at');
+            });
+        }
+
+        // Filter by services
+        if (!empty($selectedServices)) {
+            $query->whereHas('services', function ($q) use ($selectedServices) {
+                $q->where(function ($subQ) use ($selectedServices) {
+                    foreach ($selectedServices as $service) {
+                        $subQ->orWhere('title', 'like', "%{$service}%")
+                            ->orWhere('english_title', 'like', "%{$service}%");
+                    }
+                })->whereNull('services.deleted_at');
+            });
+        }
+
+        // Filter by specializations
+        if (!empty($selectedSpecializations)) {
+            $query->whereHas('specializations', function ($q) use ($selectedSpecializations) {
+                $q->where(function ($subQ) use ($selectedSpecializations) {
+                    foreach ($selectedSpecializations as $specialization) {
+                        $subQ->orWhere('title', 'like', "%{$specialization}%")
+                            ->orWhere('english_title', 'like', "%{$specialization}%");
+                    }
+                })->whereNull('specializations.deleted_at');
+            });
+        }
+
+        // Filter by categories
+        if (!empty($selectedCategories)) {
+            $query->whereHas('categories', function ($q) use ($selectedCategories) {
+                $q->where(function ($subQ) use ($selectedCategories) {
+                    foreach ($selectedCategories as $category) {
+                        $subQ->orWhere('title', 'like', "%{$category}%")
+                            ->orWhere('english_title', 'like', "%{$category}%");
+                    }
+                })->whereNull('categories.deleted_at');
+            });
+        }
+
+        $garages = $query->with(['tags', 'services', 'specializations', 'categories'])
+            ->orderBy('rating', 'desc')
+            ->orderBy('no_of_visits', 'desc')
+            ->limit(10)
+            ->get();
+
+        if ($garages->isEmpty()) {
+            return [
+                'status' => 'not_found',
+                'message' => 'No garages found matching your criteria.',
+                'results' => [],
+            ];
+        }
+
+        $results = $garages->map(function ($garage) {
+            return [
+                'id' => $garage->id,
+                'title' => $garage->title,
+                'description' => $garage->description,
+                'address' => $garage->address,
+                'area' => $garage->area,
+                'city' => $garage->city,
+                'contact_no' => $garage->contact_no,
+                'rating' => $garage->rating,
+                'no_of_visits' => $garage->no_of_visits,
+                'home_service' => $garage->home_service ?? false,
+                'pickup_service' => $garage->pickup_service ?? false,
+                'maps_share_link' => $garage->maps_share_link,
+                'services' => $garage->services->map(fn($s) => $s->english_title ?? $s->title)->toArray(),
+                'tags' => $garage->tags->map(fn($t) => $t->english_title ?? $t->title)->toArray(),
+                'specializations' => $garage->specializations->map(fn($sp) => $sp->english_title ?? $sp->title)->toArray(),
+            ];
+        })->toArray();
+
         return [
-            'status' => 'ok',
+            'status' => 'success',
             'action' => 'find_garage',
-            'received' => $args,
-            'message' => 'Garage found. A case reference will be emailed shortly.',
+            'count' => count($results),
+            'results' => $results,
         ];
     }
 
     private function toolListGarages(array $args)
     {
-        // TODO: Replace with real implementation (create claim)
+        $location = $args['location'] ?? null;
+
+        // Kuwait country ID is 112
+        $query = Garage::query()
+            ->where('status', 'approved')
+            ->where('is_available', true)
+            ->where('country_id', 112) // Only show garages in Kuwait
+            ->whereNull('deleted_at');
+
+        // Filter by location if provided
+        if ($location) {
+            $query->where(function ($q) use ($location) {
+                $q->where('area', 'like', "%{$location}%")
+                    ->orWhere('city', 'like', "%{$location}%")
+                    ->orWhere('address', 'like', "%{$location}%")
+                    ->orWhere('governate', 'like', "%{$location}%");
+            });
+        }
+
+        $garages = $query->with(['tags', 'services', 'specializations', 'categories'])
+            ->orderBy('rating', 'desc')
+            ->orderBy('no_of_visits', 'desc')
+            ->limit(20)
+            ->get();
+
+        if ($garages->isEmpty()) {
+            return [
+                'status' => 'not_found',
+                'action' => 'list_garages',
+                'message' => 'No garages found.',
+                'results' => [],
+            ];
+        }
+
+        $results = $garages->map(function ($garage) {
+            return [
+                'id' => $garage->id,
+                'title' => $garage->title,
+                'description' => $garage->description,
+                'address' => $garage->address,
+                'area' => $garage->area,
+                'city' => $garage->city,
+                'contact_no' => $garage->contact_no,
+                'rating' => $garage->rating,
+                'no_of_visits' => $garage->no_of_visits,
+            ];
+        })->toArray();
+
         return [
-            'status' => 'ok',
+            'status' => 'success',
             'action' => 'list_garages',
-            'received' => $args,
-            'message' => 'Garages listed. We will verify ownership and get back to you.',
+            'count' => count($results),
+            'results' => $results,
         ];
     }
 
     private function toolGetGarageDetails(array $args)
     {
-        // TODO: Replace with real implementation (lookup by reference/email)
+        $garageId = $args['garage_id'] ?? null;
+
+        if (!$garageId) {
+            return [
+                'status' => 'error',
+                'action' => 'get_garage_details',
+                'message' => 'Garage ID is required.',
+            ];
+        }
+
+        // Kuwait country ID is 112
+        $garage = Garage::with(['tags', 'services', 'specializations', 'categories', 'work_shifts', 'contacts', 'country'])
+            ->where('status', 'approved')
+            ->where('country_id', 112) // Only show garages in Kuwait
+            ->whereNull('deleted_at')
+            ->find($garageId);
+
+        if (!$garage) {
+            return [
+                'status' => 'not_found',
+                'action' => 'get_garage_details',
+                'message' => 'Garage not found. Please ensure the garage ID is correct.',
+            ];
+        }
+
         return [
-            'status' => 'ok',
+            'status' => 'success',
             'action' => 'get_garage_details',
-            'received' => $args,
-            'result' => 'Garage details not found. Please ensure the garage id is correct.',
+            'result' => [
+                'id' => $garage->id,
+                'title' => $garage->title,
+                'description' => $garage->description,
+                'service_description' => $garage->service_description,
+                'address' => $garage->address,
+                'area' => $garage->area,
+                'city' => $garage->city,
+                'block' => $garage->block,
+                'governate' => $garage->governate,
+                'contact_no' => $garage->contact_no,
+                'rating' => $garage->rating,
+                'no_of_visits' => $garage->no_of_visits,
+                'no_of_likes' => $garage->no_of_likes,
+                'home_service' => $garage->home_service ?? false,
+                'pickup_service' => $garage->pickup_service ?? false,
+                'maps_share_link' => $garage->maps_share_link,
+                'latitude' => $garage->latitude,
+                'longitude' => $garage->longitude,
+                'services' => $garage->services->map(fn($s) => [
+                    'id' => $s->id,
+                    'title' => $s->english_title ?? $s->title,
+                ])->toArray(),
+                'tags' => $garage->tags->map(fn($t) => [
+                    'id' => $t->id,
+                    'title' => $t->english_title ?? $t->title,
+                ])->toArray(),
+                'specializations' => $garage->specializations->map(fn($sp) => [
+                    'id' => $sp->id,
+                    'title' => $sp->english_title ?? $sp->title,
+                ])->toArray(),
+                'categories' => $garage->categories->map(fn($c) => [
+                    'id' => $c->id,
+                    'title' => $c->english_title ?? $c->title,
+                ])->toArray(),
+            ],
         ];
     }
 
     private function toolGetGarageServices(array $args)
     {
-        // TODO: Replace with real implementation (schedule appointment)
+        $garageId = $args['garage_id'] ?? null;
+
+        if (!$garageId) {
+            return [
+                'status' => 'error',
+                'action' => 'get_garage_services',
+                'message' => 'Garage ID is required.',
+            ];
+        }
+
+        // Kuwait country ID is 112
+        $garage = Garage::with(['services'])
+            ->where('status', 'approved')
+            ->where('country_id', 112) // Only show garages in Kuwait
+            ->whereNull('deleted_at')
+            ->find($garageId);
+
+        if (!$garage) {
+            return [
+                'status' => 'not_found',
+                'action' => 'get_garage_services',
+                'message' => 'Garage not found. Please ensure the garage ID is correct.',
+            ];
+        }
+
+        $services = $garage->services->map(function ($service) {
+            return [
+                'id' => $service->id,
+                'title' => $service->english_title ?? $service->title,
+                'name' => $service->english_title ?? $service->title,
+            ];
+        })->toArray();
+
+        if (empty($services)) {
+            return [
+                'status' => 'not_found',
+                'action' => 'get_garage_services',
+                'message' => 'No services found for this garage.',
+                'results' => [],
+            ];
+        }
+
         return [
-            'status' => 'ok',
+            'status' => 'success',
             'action' => 'get_garage_services',
-            'received' => $args,
-            'message' => 'Garage services not found. Please ensure the garage id is correct.',
+            'garage_id' => $garage->id,
+            'garage_title' => $garage->title,
+            'count' => count($services),
+            'results' => $services,
         ];
     }
 
     private function toolGetGarageReviews(array $args)
     {
-        // TODO: Replace with real implementation (query recent found items)
+        // Reviews feature is not implemented
         return [
-            'status' => 'ok',
+            'status' => 'not_available',
             'action' => 'get_garage_reviews',
-            'received' => $args,
-            'message' => 'Garage reviews not found. Please ensure the garage id is correct.',
+            'message' => 'Review feature is currently not available.',
         ];
     }
 
