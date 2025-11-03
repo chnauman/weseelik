@@ -31,6 +31,14 @@
                             {{ $specialization->title }}
                         </td>
                     </tr>
+                    <tr>
+                        <th>
+                            {{ trans('cruds.specialization.fields.english_title') }}
+                        </th>
+                        <td>
+                            {{ $specialization->english_title }}
+                        </td>
+                    </tr>
                 </tbody>
             </table>
             <div class="form-group">

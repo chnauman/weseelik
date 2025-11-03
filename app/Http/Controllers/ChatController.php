@@ -5,6 +5,11 @@ namespace App\Http\Controllers;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use OpenAI\Laravel\Facades\OpenAI;
+use App\Models\Garage;
+use App\Models\Tag;
+use App\Models\Service;
+use App\Models\Category;
+use App\Models\Specialization;
 
 class ChatController extends Controller
 {
@@ -51,13 +56,29 @@ class ChatController extends Controller
             'created_at' => now(),
         ]);
 
-        $tags = DB::table('tags')->pluck('english_title')->implode(', ');
+        $tags = DB::table('tags')
+            ->whereNull('deleted_at')
+            ->select(DB::raw('COALESCE(english_title, title) as display_title'))
+            ->pluck('display_title')
+            ->implode(', ');
 
-        $specializations = DB::table('specializations')->pluck('title')->implode(', ');
+        $specializations = DB::table('specializations')
+            ->whereNull('deleted_at')
+            ->select(DB::raw('COALESCE(english_title, title) as display_title'))
+            ->pluck('display_title')
+            ->implode(', ');
 
-        $services = DB::table('services')->pluck('title')->implode(', ');
+        $services = DB::table('services')
+            ->whereNull('deleted_at')
+            ->select(DB::raw('COALESCE(english_title, title) as display_title'))
+            ->pluck('display_title')
+            ->implode(', ');
 
-        $categories = DB::table('categories')->pluck('title')->implode(', ');
+        $categories = DB::table('categories')
+            ->whereNull('deleted_at')
+            ->select(DB::raw('COALESCE(english_title, title) as display_title'))
+            ->pluck('display_title')
+            ->implode(', ');
 
         // Load recent history and prepend system prompt (typo fixed)
         $history = DB::table('conversation_messages')
@@ -94,9 +115,20 @@ class ChatController extends Controller
                 Rules:
                 - Use whatever details are available from the user or chat history.
                 - Never ask for all parameters at once. Gather naturally, one by one.
-                - Never ask for obvious info (e.g., if the user says 'in Salmiya', don’t ask 'Where are you located?').
+                - Never ask for obvious info (e.g., if the user says 'in Salmiya', don't ask 'Where are you located?').
                 - Once enough info is available, call the function automatically and politely confirm.
-                - If the query is unrelated to garage services, reply politely that you can only help with the available tools.
+                - For garage-related queries: If the user asks for automotive services that match the available database services/tags/categories/specializations, use the findGarage function.
+                - For ANY location-based service query that is NOT in the garage database (including restaurants, ATMs, hotels, shopping centers, hospitals, pharmacies, petrol stations, parking lots, car rentals, or any other location-based service), automatically use the findExternalService function. This includes ALL types of businesses and services in Kuwait.
+                - Always ask for the location/area if it's missing when using findExternalService.
+                - The findExternalService function works for ANY location-based service in Kuwait region - be helpful and use it whenever a user asks for any type of location or business.
+                - When displaying results from findExternalService, format them as a numbered list in this exact format (blank line after business name):
+                  1. [Business Name](google_maps_url) - Make the business name clickable as a link that opens Google Maps
+                  Address: Street name, Area
+                  Phone: +965 XXXX XXXX (omit Phone line entirely if phone is null or not available)
+    
+                  (Continue numbering for all results, each result on separate lines)
+                  IMPORTANT: Always format business names as markdown links using the format [Business Name](google_maps_url) where google_maps_url is provided in the results. This makes the business name clickable and opens Google Maps for that location.
+                - Be helpful and assist users with any location-based service requests in Kuwait. Only decline if the query is completely unrelated to finding locations or services (e.g., general knowledge questions, non-location queries).
                 "
         ]);
 
@@ -233,6 +265,27 @@ class ChatController extends Controller
                         ],
                     ],
                 ]
+            ],
+            [
+                'type' => 'function',
+                'function' => [
+                    'name' => 'findExternalService',
+                    'description' => 'Find ANY type of location-based services in Kuwait (restaurants, ATMs, hotels, shopping malls, hospitals, pharmacies, petrol stations, parking lots, car rentals, entertainment venues, or any other business/service location). Use this function for ANY location-based query that is not in the garage database services, tags, categories, or specializations. This function works for all types of businesses and services in Kuwait.',
+                    'parameters' => [
+                        'type' => 'object',
+                        'properties' => [
+                            'service_type' => [
+                                'type' => 'string',
+                                'description' => 'The type of service or place the user is looking for (e.g., "petrol station", "ATM", "car insurance company", "parking lot", "car rental").'
+                            ],
+                            'location' => [
+                                'type' => 'string',
+                                'description' => 'The area or location in Kuwait where the user wants to find the service (e.g., "Salmiya", "Kuwait City", "Hawalli"). If not provided by user, ask for it.'
+                            ],
+                        ],
+                        'required' => ['service_type', 'location'],
+                    ],
+                ]
             ]
         ];
         
@@ -313,10 +366,9 @@ class ChatController extends Controller
         ]);
 
         return response()->json([
+            'id' => $conversation->id,
             'message' => $assistantText,
-            'conversation_id' => $conversation->id,
-            'session_id' => session()->getId(),
-            'partner_id' => 'miami_airport',
+            'conversation_id' => request()->conversation_id,
             'history' => $history,
         ]);
     }
@@ -334,6 +386,8 @@ class ChatController extends Controller
                 return $this->toolGetGarageServices($args);
             case 'getGarageReviews':
                 return $this->toolGetGarageReviews($args);
+            case 'findExternalService':
+                return $this->toolFindExternalService($args);
             default:
                 return ['error' => 'Unknown tool: ' . $name];
         }
@@ -392,5 +446,136 @@ class ChatController extends Controller
             'received' => $args,
             'message' => 'Garage reviews not found. Please ensure the garage id is correct.',
         ];
+    }
+
+    private function toolFindExternalService(array $args)
+    {
+        $serviceType = $args['service_type'] ?? '';
+        $location = $args['location'] ?? '';
+
+        // If location is missing, return an error asking for it
+        if (empty($location)) {
+            return [
+                'status' => 'error',
+                'message' => 'Location is required. Please provide the area or location in Kuwait where you want to find ' . $serviceType . '.',
+            ];
+        }
+
+        // Use OpenAI to get location-based services in Kuwait
+        $model = env('OPENAI_MODEL', 'gpt-4o-mini');
+        $temperature = env('OPENAI_TEMPERATURE', 0.7);
+
+        $prompt = "Provide information about 3-4 {$serviceType} locations in {$location}, Kuwait. For each location, provide:
+                    1. Name of the place/business
+                    2. Address (street name and area)
+                    3. Phone number (if available)
+
+                    Format the response as a JSON object with a 'locations' array containing objects with 'name', 'address', and 'phone' fields. If phone is not available, use null.
+                    Example format:
+                    {
+                    \"locations\": [
+                        {\"name\": \"Example Name\", \"address\": \"Street name, Area\", \"phone\": \"+965 XXXX XXXX\"},
+                        ...
+                    ]
+                    }
+
+                    Only include real, known locations in Kuwait. If you don't have enough information about specific locations, provide the best available information.";
+
+        try {
+            $response = OpenAI::chat()->create([
+                'model' => $model,
+                'messages' => [
+                    [
+                        'role' => 'system',
+                        'content' => 'You are a helpful assistant that provides accurate location information about businesses and services in Kuwait. Always respond with valid JSON object format containing a "locations" array.'
+                    ],
+                    [
+                        'role' => 'user',
+                        'content' => $prompt
+                    ]
+                ],
+                'temperature' => 0.3, // Lower temperature for more factual responses
+                'response_format' => ['type' => 'json_object'], // Force JSON response
+            ]);
+
+            $content = $response->choices[0]->message->content ?? '';
+            
+            // Try to parse as JSON
+            $data = json_decode($content, true);
+            
+            // Extract locations array from response
+            if (is_array($data)) {
+                if (isset($data['locations']) && is_array($data['locations'])) {
+                    $locations = $data['locations'];
+                } elseif (isset($data['results']) && is_array($data['results'])) {
+                    $locations = $data['results'];
+                } elseif (isset($data[0]) && is_array($data[0])) {
+                    // If it's already an array of objects
+                    $locations = $data;
+                } else {
+                    // Fallback: try to extract JSON array from markdown or text
+                    $jsonMatch = [];
+                    if (preg_match('/\[[\s\S]*\]/', $content, $jsonMatch)) {
+                        $locations = json_decode($jsonMatch[0], true) ?? [];
+                    } else {
+                        $locations = [];
+                    }
+                }
+            } else {
+                $locations = [];
+            }
+
+            // Ensure we have an array
+            if (!is_array($locations)) {
+                $locations = [];
+            }
+
+            // Limit to 4 results
+            $locations = array_slice($locations, 0, 4);
+
+            // Format and validate the response
+            $formattedResults = [];
+            foreach ($locations as $locationItem) {
+                if (is_array($locationItem)) {
+                    $name = $locationItem['name'] ?? $locationItem['Name'] ?? 'Unknown';
+                    $address = $locationItem['address'] ?? $locationItem['Address'] ?? 'Address not available';
+                    $phone = $locationItem['phone'] ?? $locationItem['Phone'] ?? $locationItem['phone_number'] ?? null;
+                    
+                    // Generate Google Maps URL for this location
+                    $mapsQuery = urlencode($address . ', ' . $location . ', Kuwait');
+                    $googleMapsUrl = "https://www.google.com/maps/search/?api=1&query=" . $mapsQuery;
+                    
+                    $formattedResults[] = [
+                        'name' => $name,
+                        'address' => $address,
+                        'phone' => $phone,
+                        'google_maps_url' => $googleMapsUrl,
+                    ];
+                }
+            }
+
+            if (empty($formattedResults)) {
+                return [
+                    'status' => 'not_found',
+                    'message' => "Sorry, I couldn't find specific {$serviceType} locations in {$location}, Kuwait. The information may not be available in my database.",
+                    'results' => [],
+                ];
+            }
+
+            return [
+                'status' => 'success',
+                'service_type' => $serviceType,
+                'location' => $location,
+                'results' => $formattedResults,
+                'count' => count($formattedResults),
+            ];
+
+        } catch (\Exception $e) {
+            return [
+                'status' => 'error',
+                'message' => 'Unable to fetch service information at the moment. Please try again later.',
+                'error' => $e->getMessage(),
+            ];
+        }
     }
 }

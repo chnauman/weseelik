@@ -22,6 +22,10 @@ class UpdateCategoryRequest extends FormRequest
                 'required',
                 'unique:categories,title,' . request()->route('category')->id,
             ],
+            'english_title' => [
+                'nullable',
+                'string',
+            ],
         ];
     }
 }

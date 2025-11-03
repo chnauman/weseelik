@@ -29,6 +29,9 @@
                             {{ trans('cruds.category.fields.title') }}
                         </th>
                         <th>
+                            {{ trans('cruds.category.fields.english_title') }}
+                        </th>
+                        <th>
                             &nbsp;
                         </th>
                     </tr>
@@ -44,6 +47,9 @@
                             </td>
                             <td>
                                 {{ $category->title ?? '' }}
+                            </td>
+                            <td>
+                                {{ $category->english_title ?? '' }}
                             </td>
                             <td>
                                 @can('category_show')

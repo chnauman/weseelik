@@ -9,19 +9,20 @@
         "google/auth": "^1.47",
         "google/cloud-firestore": "^1.0",
         "guzzlehttp/guzzle": "^7.2",
-        "kreait/laravel-firebase": "^5.0",
+        "kreait/laravel-firebase": "^5.0,<5.10",
         "laravel/framework": "^10.0",
         "laravel/sanctum": "^3.2",
         "laravel/tinker": "^2.8",
+        "maennchen/zipstream-php": "2.0",
         "openai-php/laravel": "^0.11.0",
         "pusher/pusher-php-server": "^7.2",
-        "spatie/laravel-medialibrary": "^10.7",
+        "spatie/laravel-medialibrary": "^10.7,<10.15",
         "twilio/sdk": "^7.0",
         "yajra/laravel-datatables-oracle": "^10.3"
     },
     "require-dev": {
         "fakerphp/faker": "^1.9.1",
-        "laravel/pint": "^1.0",
+        "laravel/pint": "^1.0,<1.22",
         "laravel/sail": "^1.18",
         "laravel/ui": "^4.2",
         "mockery/mockery": "^1.4.4",
@@ -69,8 +70,10 @@
         "preferred-install": "dist",
         "sort-packages": true,
         "allow-plugins": {
-            "pestphp/pest-plugin": true
-        }
+            "pestphp/pest-plugin": true,
+            "php-http/discovery": true
+        },
+        "platform-check": false
     },
     "minimum-stability": "stable",
     "prefer-stable": true

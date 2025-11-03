@@ -31,6 +31,14 @@
                             {{ $service->title }}
                         </td>
                     </tr>
+                    <tr>
+                        <th>
+                            {{ trans('cruds.service.fields.english_title') }}
+                        </th>
+                        <td>
+                            {{ $service->english_title }}
+                        </td>
+                    </tr>
                 </tbody>
             </table>
             <div class="form-group">

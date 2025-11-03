@@ -22,6 +22,10 @@ class UpdateSpecializationRequest extends FormRequest
                 'required',
                 'unique:specializations,title,' . request()->route('specialization')->id,
             ],
+            'english_title' => [
+                'nullable',
+                'string',
+            ],
         ];
     }
 }

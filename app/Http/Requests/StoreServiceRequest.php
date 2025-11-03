@@ -22,6 +22,10 @@ class StoreServiceRequest extends FormRequest
                 'required',
                 'unique:services',
             ],
+            'english_title' => [
+                'nullable',
+                'string',
+            ],
         ];
     }
 }

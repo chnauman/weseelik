@@ -29,6 +29,9 @@
                             {{ trans('cruds.specialization.fields.title') }}
                         </th>
                         <th>
+                            {{ trans('cruds.specialization.fields.english_title') }}
+                        </th>
+                        <th>
                             &nbsp;
                         </th>
                     </tr>
@@ -44,6 +47,9 @@
                             </td>
                             <td>
                                 {{ $specialization->title ?? '' }}
+                            </td>
+                            <td>
+                                {{ $specialization->english_title ?? '' }}
                             </td>
                             <td>
                                 @can('specialization_show')

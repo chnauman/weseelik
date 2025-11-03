@@ -31,6 +31,14 @@
                             {{ $category->title }}
                         </td>
                     </tr>
+                    <tr>
+                        <th>
+                            {{ trans('cruds.category.fields.english_title') }}
+                        </th>
+                        <td>
+                            {{ $category->english_title }}
+                        </td>
+                    </tr>
                 </tbody>
             </table>
             <div class="form-group">

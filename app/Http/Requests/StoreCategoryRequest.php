@@ -22,6 +22,10 @@ class StoreCategoryRequest extends FormRequest
                 'required',
                 'unique:categories',
             ],
+            'english_title' => [
+                'nullable',
+                'string',
+            ],
         ];
     }
 }

@@ -29,6 +29,9 @@
                             {{ trans('cruds.service.fields.title') }}
                         </th>
                         <th>
+                            {{ trans('cruds.service.fields.english_title') }}
+                        </th>
+                        <th>
                             &nbsp;
                         </th>
                     </tr>
@@ -44,6 +47,9 @@
                             </td>
                             <td>
                                 {{ $service->title ?? '' }}
+                            </td>
+                            <td>
+                                {{ $service->english_title ?? '' }}
                             </td>
                             <td>
                                 @can('service_show')

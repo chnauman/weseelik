@@ -22,6 +22,10 @@ class UpdateServiceRequest extends FormRequest
                 'required',
                 'unique:services,title,' . request()->route('service')->id,
             ],
+            'english_title' => [
+                'nullable',
+                'string',
+            ],
         ];
     }
 }

@@ -22,6 +22,10 @@ class StoreSpecializationRequest extends FormRequest
                 'required',
                 'unique:specializations',
             ],
+            'english_title' => [
+                'nullable',
+                'string',
+            ],
         ];
     }
 }
