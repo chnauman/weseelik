@@ -51,7 +51,7 @@ class ChatController extends Controller
             'created_at' => now(),
         ]);
 
-        $tags = DB::table('tags')->pluck('title')->implode(', ');
+        $tags = DB::table('tags')->pluck('english_title')->implode(', ');
 
         $specializations = DB::table('specializations')->pluck('title')->implode(', ');
 
