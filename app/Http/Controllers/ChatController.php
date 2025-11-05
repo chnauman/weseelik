@@ -4,6 +4,9 @@ namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Cache;
 use OpenAI\Laravel\Facades\OpenAI;
 use App\Models\Garage;
 use App\Models\Tag;
@@ -308,6 +311,10 @@ class ChatController extends Controller
 
         //return response()->json($response);
 
+        // Extract latitude and longitude from tool results
+        $latitude = null;
+        $longitude = null;
+
         if (!empty($toolCalls)) {
             // Append assistant message with tool_calls to the history
             $history[] = [
@@ -334,6 +341,44 @@ class ChatController extends Controller
                 }
 
                 $result = $this->dispatchTool($toolName, $args);
+
+                // Extract lat/lng from tool results (only if we don't have them yet or if these are valid)
+                if (is_array($result)) {
+                    $tempLat = null;
+                    $tempLng = null;
+                    
+                    // For findGarage, listGarages, findExternalService - extract from first result
+                    if (isset($result['results']) && is_array($result['results']) && !empty($result['results'])) {
+                        $firstResult = $result['results'][0];
+                        if (isset($firstResult['latitude']) && isset($firstResult['longitude'])) {
+                            $latVal = $firstResult['latitude'];
+                            $lngVal = $firstResult['longitude'];
+                            // Check if values are not null and not empty strings
+                            if ($latVal !== null && $latVal !== '' && $lngVal !== null && $lngVal !== '') {
+                                $tempLat = is_numeric($latVal) ? (float)$latVal : $latVal;
+                                $tempLng = is_numeric($lngVal) ? (float)$lngVal : $lngVal;
+                            }
+                        }
+                    }
+                    // For getGarageDetails - extract from result
+                    elseif (isset($result['result']) && is_array($result['result'])) {
+                        if (isset($result['result']['latitude']) && isset($result['result']['longitude'])) {
+                            $latVal = $result['result']['latitude'];
+                            $lngVal = $result['result']['longitude'];
+                            // Check if values are not null and not empty strings
+                            if ($latVal !== null && $latVal !== '' && $lngVal !== null && $lngVal !== '') {
+                                $tempLat = is_numeric($latVal) ? (float)$latVal : $latVal;
+                                $tempLng = is_numeric($lngVal) ? (float)$lngVal : $lngVal;
+                            }
+                        }
+                    }
+                    
+                    // Only update if we found valid coordinates
+                    if ($tempLat !== null && $tempLng !== null) {
+                        $latitude = $tempLat;
+                        $longitude = $tempLng;
+                    }
+                }
 
                 $history[] = [
                     'role' => 'tool',
@@ -369,6 +414,8 @@ class ChatController extends Controller
             'id' => $conversation->id,
             'message' => $assistantText,
             'conversation_id' => request()->conversation_id,
+            'latitude' => $latitude,
+            'longitude' => $longitude,
             'history' => $history,
         ]);
     }
@@ -480,7 +527,32 @@ class ChatController extends Controller
             ];
         }
 
-        $results = $garages->map(function ($garage) {
+        $geocodingApiKey = env('GOOGLE_MAPS_API_KEY');
+        $results = $garages->map(function ($garage, $index) use ($geocodingApiKey) {
+            $lat = $garage->latitude;
+            $lng = $garage->longitude;
+            
+            // If coordinates are missing, try to geocode the address (only for first result to avoid performance issues)
+            if ($index === 0 && ($lat === null || $lat === '' || $lng === null || $lng === '') && $geocodingApiKey) {
+                $addressToGeocode = null;
+                if ($garage->address) {
+                    $addressToGeocode = $garage->address;
+                    if ($garage->area) {
+                        $addressToGeocode .= ', ' . $garage->area;
+                    }
+                    if ($garage->city) {
+                        $addressToGeocode .= ', ' . $garage->city;
+                    }
+                    $addressToGeocode .= ', Kuwait';
+                    
+                    $geocodeResult = $this->geocodeLocation($addressToGeocode, $geocodingApiKey);
+                    if ($geocodeResult && isset($geocodeResult['lat']) && isset($geocodeResult['lng'])) {
+                        $lat = $geocodeResult['lat'];
+                        $lng = $geocodeResult['lng'];
+                    }
+                }
+            }
+            
             return [
                 'id' => $garage->id,
                 'title' => $garage->title,
@@ -494,6 +566,8 @@ class ChatController extends Controller
                 'home_service' => $garage->home_service ?? false,
                 'pickup_service' => $garage->pickup_service ?? false,
                 'maps_share_link' => $garage->maps_share_link,
+                'latitude' => $lat !== null && $lat !== '' ? (is_numeric($lat) ? (float)$lat : $lat) : null,
+                'longitude' => $lng !== null && $lng !== '' ? (is_numeric($lng) ? (float)$lng : $lng) : null,
                 'services' => $garage->services->map(fn($s) => $s->english_title ?? $s->title)->toArray(),
                 'tags' => $garage->tags->map(fn($t) => $t->english_title ?? $t->title)->toArray(),
                 'specializations' => $garage->specializations->map(fn($sp) => $sp->english_title ?? $sp->title)->toArray(),
@@ -555,6 +629,8 @@ class ChatController extends Controller
                 'contact_no' => $garage->contact_no,
                 'rating' => $garage->rating,
                 'no_of_visits' => $garage->no_of_visits,
+                'latitude' => $garage->latitude,
+                'longitude' => $garage->longitude,
             ];
         })->toArray();
 
@@ -712,7 +788,327 @@ class ChatController extends Controller
             ];
         }
 
-        // Use OpenAI to get location-based services in Kuwait
+        // Get Google Maps API keys from environment
+        $geocodingApiKey = env('GOOGLE_MAPS_API_KEY');
+        $placesApiKey = env('GOOGLE_PLACES_API_KEY', $geocodingApiKey); // Use same key if Places key not set
+
+        // Try Google Maps APIs first
+        if ($geocodingApiKey) {
+            try {
+                // Step 1: Geocode the location to get lat/lng
+                $geocodeResult = $this->geocodeLocation($location, $geocodingApiKey);
+                if ($geocodeResult && isset($geocodeResult['lat']) && isset($geocodeResult['lng'])) {
+                    $lat = $geocodeResult['lat'];
+                    $lng = $geocodeResult['lng'];
+                    
+                    // Step 2: Map service_type to Google place types
+                    $placeType = $this->mapServiceTypeToPlaceType($serviceType);
+                    
+                    // Step 3: Search nearby places with expanding radius
+                    $results = $this->searchNearbyPlaces($lat, $lng, $placeType, $placesApiKey);
+                    
+                    if (!empty($results) && count($results) >= 2) {
+                        // Format results with all available fields
+                        $formattedResults = $this->formatPlaceResults($results);
+                        
+                        return [
+                            'status' => 'success',
+                            'service_type' => $serviceType,
+                            'location' => $location,
+                            'results' => $formattedResults,
+                            'count' => count($formattedResults),
+                        ];
+                    }
+                }
+            } catch (\Exception $e) {
+                // Log error but continue to fallback
+                Log::warning('Google Maps API error: ' . $e->getMessage());
+            }
+        }
+
+        // Fallback to OpenAI if Google APIs fail or return insufficient results
+        return $this->fallbackToOpenAI($serviceType, $location);
+    }
+
+    /**
+     * Geocode a location to get latitude and longitude
+     * Uses cache to avoid unnecessary API calls for the same location
+     */
+    private function geocodeLocation(string $location, string $apiKey)
+    {
+        // Normalize location name for cache key (lowercase, trim)
+        $cacheKey = 'geocode_' . md5(strtolower(trim($location)) . '_kuwait');
+        
+        // Check cache first - coordinates don't change, so cache forever
+        $cached = Cache::get($cacheKey);
+        if ($cached !== null) {
+            return $cached;
+        }
+        
+        try {
+            $address = urlencode($location . ', Kuwait');
+            $url = "https://maps.googleapis.com/maps/api/geocode/json?address={$address}&key={$apiKey}";
+            
+            $response = Http::timeout(10)->get($url);
+            
+            if (!$response->successful()) {
+                return null;
+            }
+            
+            $data = $response->json();
+            
+            if ($data && isset($data['status']) && $data['status'] === 'OK' && !empty($data['results'])) {
+                $locationData = $data['results'][0]['geometry']['location'];
+                $result = [
+                    'lat' => $locationData['lat'],
+                    'lng' => $locationData['lng'],
+                ];
+                
+                // Cache the result forever (coordinates don't change)
+                // Cache for 1 year (31536000 seconds) - practically forever
+                Cache::put($cacheKey, $result, now()->addYear());
+                
+                return $result;
+            }
+        } catch (\Exception $e) {
+            Log::warning('Geocoding error: ' . $e->getMessage());
+        }
+        
+        return null;
+    }
+
+    /**
+     * Map service type to Google Places API place type
+     */
+    private function mapServiceTypeToPlaceType(string $serviceType)
+    {
+        $serviceType = strtolower($serviceType);
+        
+        $mapping = [
+            'restaurant' => 'restaurant',
+            'restaurants' => 'restaurant',
+            'food' => 'restaurant',
+            'atm' => 'atm',
+            'atms' => 'atm',
+            'bank' => 'bank',
+            'banks' => 'bank',
+            'hotel' => 'lodging',
+            'hotels' => 'lodging',
+            'shopping' => 'shopping_mall',
+            'mall' => 'shopping_mall',
+            'shopping center' => 'shopping_mall',
+            'shopping centre' => 'shopping_mall',
+            'hospital' => 'hospital',
+            'hospitals' => 'hospital',
+            'clinic' => 'doctor',
+            'pharmacy' => 'pharmacy',
+            'pharmacies' => 'pharmacy',
+            'petrol station' => 'gas_station',
+            'gas station' => 'gas_station',
+            'fuel station' => 'gas_station',
+            'petrol' => 'gas_station',
+            'parking' => 'parking',
+            'parking lot' => 'parking',
+            'car rental' => 'car_rental',
+            'car rentals' => 'car_rental',
+            'rental' => 'car_rental',
+            'insurance' => 'insurance_agency',
+            'car insurance' => 'insurance_agency',
+            'gym' => 'gym',
+            'fitness' => 'gym',
+            'cafe' => 'cafe',
+            'coffee' => 'cafe',
+            'supermarket' => 'supermarket',
+            'grocery' => 'supermarket',
+            'store' => 'store',
+            'shop' => 'store',
+        ];
+        
+        // Check exact matches first
+        if (isset($mapping[$serviceType])) {
+            return $mapping[$serviceType];
+        }
+        
+        // Check partial matches
+        foreach ($mapping as $key => $placeType) {
+            if (strpos($serviceType, $key) !== false) {
+                return $placeType;
+            }
+        }
+        
+        // Default to generic establishment
+        return 'establishment';
+    }
+
+    /**
+     * Search for nearby places with expanding radius
+     */
+    private function searchNearbyPlaces(float $lat, float $lng, string $placeType, string $apiKey)
+    {
+        $radius = 2000; // Start with 2000 meters
+        $maxRadius = 10000; // Maximum radius to try
+        $minResults = 2; // Minimum 2-3 results required
+        $requiredResults = 4; // Target 4-5 results
+        
+        $allResults = [];
+        
+        while ($radius <= $maxRadius) {
+            $url = "https://maps.googleapis.com/maps/api/place/nearbysearch/json?" .
+                   "location={$lat},{$lng}&" .
+                   "radius={$radius}&" .
+                   "type={$placeType}&" .
+                   "key={$apiKey}";
+            
+            try {
+                $response = Http::timeout(10)->get($url);
+                
+                if (!$response->successful()) {
+                    break;
+                }
+                
+                $data = $response->json();
+            } catch (\Exception $e) {
+                Log::warning('Nearby search error: ' . $e->getMessage());
+                break;
+            }
+            
+            if ($data && $data['status'] === 'OK' && !empty($data['results'])) {
+                // Merge new results, avoiding duplicates
+                foreach ($data['results'] as $result) {
+                    $placeId = $result['place_id'] ?? '';
+                    if (!isset($allResults[$placeId])) {
+                        $allResults[$placeId] = $result;
+                    }
+                }
+                
+                // If we have at least minimum required results, we can stop
+                if (count($allResults) >= $minResults) {
+                    // But if we have less than target, try one more expansion
+                    if (count($allResults) < $requiredResults && $radius < $maxRadius) {
+                        $radius = min($radius * 2, $maxRadius);
+                        continue;
+                    }
+                    break;
+                }
+            } elseif ($data && $data['status'] === 'ZERO_RESULTS') {
+                // No results at this radius, expand
+                $radius = min($radius * 2, $maxRadius);
+                continue;
+            } else {
+                // API error, break
+                break;
+            }
+            
+            // Expand radius for next iteration
+            $radius = min($radius * 2, $maxRadius);
+        }
+        
+        return array_values($allResults);
+    }
+
+    /**
+     * Format place results with all available fields
+     */
+    private function formatPlaceResults(array $places)
+    {
+        $formatted = [];
+        $apiKey = env('GOOGLE_PLACES_API_KEY', env('GOOGLE_MAPS_API_KEY'));
+        
+        foreach ($places as $place) {
+            $placeId = $place['place_id'] ?? '';
+            $name = $place['name'] ?? 'Unknown';
+            $address = $place['vicinity'] ?? ($place['formatted_address'] ?? 'Address not available');
+            $rating = $place['rating'] ?? null;
+            $userRatingsTotal = $place['user_ratings_total'] ?? null;
+            
+            // Get detailed place info including phone number
+            $phone = null;
+            $openingHours = null;
+            
+            if ($apiKey && $placeId) {
+                try {
+                    $details = $this->getPlaceDetails($placeId, $apiKey);
+                    if ($details) {
+                        $phone = $details['formatted_phone_number'] ?? $details['international_phone_number'] ?? null;
+                        if (isset($details['opening_hours']['weekday_text'])) {
+                            $openingHours = $details['opening_hours']['weekday_text'];
+                        } elseif (isset($details['opening_hours']['open_now'])) {
+                            $openingHours = $details['opening_hours']['open_now'] ? 'Open now' : 'Closed now';
+                        }
+                        // Use detailed address if available
+                        if (isset($details['formatted_address'])) {
+                            $address = $details['formatted_address'];
+                        }
+                    }
+                } catch (\Exception $e) {
+                    // Continue without details if API call fails
+                }
+            }
+            
+            // Generate Google Maps URL
+            $lat = $place['geometry']['location']['lat'] ?? null;
+            $lng = $place['geometry']['location']['lng'] ?? null;
+            $googleMapsUrl = null;
+            
+            if ($lat && $lng) {
+                $googleMapsUrl = "https://www.google.com/maps/search/?api=1&query={$lat},{$lng}";
+            } elseif ($placeId) {
+                $googleMapsUrl = "https://www.google.com/maps/place/?q=place_id:" . $placeId;
+            } else {
+                $mapsQuery = urlencode($address);
+                $googleMapsUrl = "https://www.google.com/maps/search/?api=1&query=" . $mapsQuery;
+            }
+            
+            $formatted[] = [
+                'name' => $name,
+                'address' => $address,
+                'phone' => $phone,
+                'rating' => $rating,
+                'user_ratings_total' => $userRatingsTotal,
+                'opening_hours' => $openingHours,
+                'latitude' => $lat,
+                'longitude' => $lng,
+                'google_maps_url' => $googleMapsUrl,
+            ];
+        }
+        
+        return $formatted;
+    }
+
+    /**
+     * Get detailed place information including phone number
+     */
+    private function getPlaceDetails(string $placeId, string $apiKey)
+    {
+        try {
+            $url = "https://maps.googleapis.com/maps/api/place/details/json?" .
+                   "place_id={$placeId}&" .
+                   "fields=formatted_phone_number,international_phone_number,formatted_address,opening_hours&" .
+                   "key={$apiKey}";
+            
+            $response = Http::timeout(10)->get($url);
+            
+            if (!$response->successful()) {
+                return null;
+            }
+            
+            $data = $response->json();
+            
+            if ($data && isset($data['status']) && $data['status'] === 'OK' && isset($data['result'])) {
+                return $data['result'];
+            }
+        } catch (\Exception $e) {
+            Log::warning('Place details error: ' . $e->getMessage());
+        }
+        
+        return null;
+    }
+
+    /**
+     * Fallback to OpenAI if Google Maps APIs fail
+     */
+    private function fallbackToOpenAI(string $serviceType, string $location)
+    {
         $model = env('OPENAI_MODEL', 'gpt-4o-mini');
         $temperature = env('OPENAI_TEMPERATURE', 0.7);
 
@@ -786,11 +1182,25 @@ class ChatController extends Controller
 
             // Format and validate the response
             $formattedResults = [];
+            $geocodingApiKey = env('GOOGLE_MAPS_API_KEY');
+            
             foreach ($locations as $locationItem) {
                 if (is_array($locationItem)) {
                     $name = $locationItem['name'] ?? $locationItem['Name'] ?? 'Unknown';
                     $address = $locationItem['address'] ?? $locationItem['Address'] ?? 'Address not available';
                     $phone = $locationItem['phone'] ?? $locationItem['Phone'] ?? $locationItem['phone_number'] ?? null;
+                    
+                    // Geocode the address to get lat/lng
+                    $lat = null;
+                    $lng = null;
+                    if ($geocodingApiKey) {
+                        $fullAddress = $address . ', ' . $location . ', Kuwait';
+                        $geocodeResult = $this->geocodeLocation($fullAddress, $geocodingApiKey);
+                        if ($geocodeResult && isset($geocodeResult['lat']) && isset($geocodeResult['lng'])) {
+                            $lat = $geocodeResult['lat'];
+                            $lng = $geocodeResult['lng'];
+                        }
+                    }
                     
                     // Generate Google Maps URL for this location
                     $mapsQuery = urlencode($address . ', ' . $location . ', Kuwait');
@@ -800,6 +1210,8 @@ class ChatController extends Controller
                         'name' => $name,
                         'address' => $address,
                         'phone' => $phone,
+                        'latitude' => $lat,
+                        'longitude' => $lng,
                         'google_maps_url' => $googleMapsUrl,
                     ];
                 }
