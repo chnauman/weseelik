@@ -4,6 +4,7 @@ use App\Http\Controllers\Api\AuthController;
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\JsonEditorController;
 use App\Http\Controllers\ChatController;
+use App\Http\Controllers\GarageMatchController;
 
 // Protected Routes
 Route::middleware('auth:sanctum')->group(function () {
@@ -15,6 +16,9 @@ Route::middleware('auth:sanctum')->group(function () {
 Route::get('/welcome', function () {
     echo "Welcome to the API";
 });
+
+// Garage Match API (public, no authentication required)
+Route::get('/garage-match-url/{id}', [GarageMatchController::class, 'matchGarageWithUrl']);
 
 Route::group(['prefix' => 'v1', 'as' => 'api.'], function () {
     Route::post('chat', [ChatController::class, 'handleChat'])->name('chat');
