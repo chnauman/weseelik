@@ -123,7 +123,7 @@ class ChatController extends Controller
                 - For garage-related queries: If the user asks for automotive services that match the available database services/tags/categories/specializations, use the findGarage function.
                 - For ANY location-based service query that is NOT in the garage database (including restaurants, ATMs, hotels, shopping centers, hospitals, pharmacies, petrol stations, parking lots, car rentals, or any other location-based service), automatically use the findExternalService function. This includes ALL types of businesses and services in Kuwait.
                 - Always ask for the location/area if it's missing when using findExternalService.
-                - The findExternalService function works for ANY location-based service in Kuwait region - be helpful and use it whenever a user asks for any type of location or business.
+                - The findExternalService function works ONLY for location-based services in Kuwait region - use it ONLY when a user asks for finding a specific location or business.
                 - When displaying results from findExternalService, format them as a numbered list in this exact format (blank line after business name):
                   1. [Business Name](google_maps_url) - Make the business name clickable as a link that opens Google Maps
                   Address: Street name, Area
@@ -131,7 +131,13 @@ class ChatController extends Controller
     
                   (Continue numbering for all results, each result on separate lines)
                   IMPORTANT: Always format business names as markdown links using the format [Business Name](google_maps_url) where google_maps_url is provided in the results. This makes the business name clickable and opens Google Maps for that location.
-                - Be helpful and assist users with any location-based service requests in Kuwait. Only decline if the query is completely unrelated to finding locations or services (e.g., general knowledge questions, non-location queries).
+                - STRICT BOUNDARIES: You are ONLY a location finder chatbot for Kuwait. You MUST decline and politely redirect any queries that are NOT related to finding locations or businesses in Kuwait. This includes:
+                  * Jokes, humor, or entertainment requests
+                  * General knowledge questions
+                  * Weather, news, or current events
+                  * Personal advice or conversations
+                  * Non-location related queries of any kind
+                - When declining non-location queries, politely say: 'I'm a location finder chatbot for Kuwait. I can only help you find garages or other businesses and services in Kuwait. How can I help you find a location?'
                 "
         ]);
 
@@ -273,7 +279,7 @@ class ChatController extends Controller
                 'type' => 'function',
                 'function' => [
                     'name' => 'findExternalService',
-                    'description' => 'Find ANY type of location-based services in Kuwait (restaurants, ATMs, hotels, shopping malls, hospitals, pharmacies, petrol stations, parking lots, car rentals, entertainment venues, or any other business/service location). Use this function for ANY location-based query that is not in the garage database services, tags, categories, or specializations. This function works for all types of businesses and services in Kuwait.',
+                    'description' => 'Find location-based services and businesses in Kuwait ONLY. Use this function ONLY when the user explicitly asks to find a specific location, business, or service in Kuwait (e.g., restaurants, ATMs, hotels, shopping malls, hospitals, pharmacies, petrol stations, parking lots, car rentals, or any other business/service location). DO NOT use this function for non-location queries like jokes, general knowledge, weather, news, or any conversation that is not about finding a location in Kuwait.',
                     'parameters' => [
                         'type' => 'object',
                         'properties' => [
@@ -780,6 +786,24 @@ class ChatController extends Controller
         $serviceType = $args['service_type'] ?? '';
         $location = $args['location'] ?? '';
 
+        // Validate that this is a legitimate location-based query
+        // Reject non-location queries (jokes, general knowledge, etc.)
+        $nonLocationKeywords = [
+            'joke', 'jokes', 'funny', 'humor', 'entertainment', 'story', 'stories',
+            'weather', 'news', 'advice', 'opinion', 'tell me about', 'what is', 'who is',
+            'how to', 'explain', 'define', 'meaning', 'chat', 'talk', 'conversation'
+        ];
+        
+        $serviceTypeLower = strtolower($serviceType);
+        foreach ($nonLocationKeywords as $keyword) {
+            if (strpos($serviceTypeLower, $keyword) !== false) {
+                return [
+                    'status' => 'error',
+                    'message' => 'I am a location finder chatbot for Kuwait only. I can only help you find garages or other businesses and services in Kuwait. Please ask me to find a specific location or business in Kuwait.',
+                ];
+            }
+        }
+
         // If location is missing, return an error asking for it
         if (empty($location)) {
             return [
@@ -1134,7 +1158,7 @@ class ChatController extends Controller
                 'messages' => [
                     [
                         'role' => 'system',
-                        'content' => 'You are a helpful assistant that provides accurate location information about businesses and services in Kuwait. Always respond with valid JSON object format containing a "locations" array.'
+                        'content' => 'You are a location finder assistant for Kuwait ONLY. Your ONLY purpose is to provide accurate location information about businesses and services in Kuwait. You MUST respond ONLY with valid JSON object format containing a "locations" array. Do NOT provide jokes, general knowledge, or any information unrelated to location finding in Kuwait. If you cannot find specific location information, return an empty locations array.'
                     ],
                     [
                         'role' => 'user',
