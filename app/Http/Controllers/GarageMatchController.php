@@ -160,12 +160,12 @@ Example format:
   \"matches\": [
     {
       \"index\": 0,
-      \"match_percentage\": 30,
+      \"match_percentage\": 55,
       \"reason\": \"Exact name match\"
     },
     {
       \"index\": 1,
-      \"match_percentage\": 30,
+      \"match_percentage\": 55,
       \"reason\": \"Partial match, different business type\"
     }
   ]
@@ -321,8 +321,8 @@ Only return valid JSON. Do not include any markdown formatting or additional tex
         // If we have a place name, try to match it first
         if (!empty($googlePlaceName)) {
             $matchResult = $this->matchNames($garageTitle, $googlePlaceName);
-            // If match result is null or match percentage is less than 30%, search nearby places
-            if ($matchResult === null || !isset($matchResult['match_percentage']) || $matchResult['match_percentage'] < 30) {
+            // If match result is null or match percentage is less than 55%, search nearby places
+            if ($matchResult === null || !isset($matchResult['match_percentage']) || $matchResult['match_percentage'] < 55) {
                 $shouldSearchNearby = true;
             }
         } else {
@@ -389,17 +389,17 @@ Only return valid JSON. Do not include any markdown formatting or additional tex
         }
         
         // Determine the highest confidence (use whichever is higher between direct match and nearby places)
-        $finalConfidence = null;
+        $finalConfidence = 0; // Default to 0 if no matches found
         if ($directMatchPercentage !== null && $highestNearbyMatchPercentage !== null) {
             $finalConfidence = max($directMatchPercentage, $highestNearbyMatchPercentage);
         } elseif ($directMatchPercentage !== null) {
             $finalConfidence = $directMatchPercentage;
         } elseif ($highestNearbyMatchPercentage !== null) {
             $finalConfidence = $highestNearbyMatchPercentage;
-        } else {
-            // No matches found - set to 0
-            $finalConfidence = 0;
         }
+        
+        // Ensure finalConfidence is always an integer
+        $finalConfidence = (int)$finalConfidence;
         
         // Determine location_verified status based on confidence
         $locationVerified = $this->determineLocationVerified($finalConfidence);
@@ -430,9 +430,10 @@ Only return valid JSON. Do not include any markdown formatting or additional tex
             $updatedLocationVerified = $garage->location_verified;
         }
 
-        // Prepare response
+        // Prepare response with consistent structure
         $response = [
             'status' => 'success',
+            'match_percentage' => $finalConfidence, // Always at root level (highest match)
             'garage' => [
                 'id' => $garage->id,
                 'title' => $garageTitle,
@@ -442,38 +443,30 @@ Only return valid JSON. Do not include any markdown formatting or additional tex
             ],
         ];
 
-        // Add nearby places matches (prioritize these if available)
+        // Always include direct_match if available
+        if ($matchResult && !empty($googlePlaceName)) {
+            $response['direct_match'] = [
+                'name' => $googlePlaceName,
+                'match_percentage' => $matchResult['match_percentage'],
+                'match_reason' => $matchResult['reason'],
+            ];
+        }
+
+        // Always include nearby_places if available
         if (!empty($nearbyPlacesMatches)) {
             $response['nearby_places'] = $nearbyPlacesMatches;
             $response['total_nearby_places'] = count($nearbyPlacesMatches);
+        }
+
+        // Set appropriate message based on results
+        if (!empty($nearbyPlacesMatches) && $matchResult && !empty($googlePlaceName)) {
+            $response['message'] = 'Found ' . count($nearbyPlacesMatches) . ' nearby places with match percentages. Direct match also available.';
+        } elseif (!empty($nearbyPlacesMatches)) {
             $response['message'] = 'Found ' . count($nearbyPlacesMatches) . ' nearby places with match percentages.';
-            
-            // If we also had a direct match, include it for comparison
-            if ($matchResult && !empty($googlePlaceName)) {
-                $response['direct_match'] = [
-                    'name' => $googlePlaceName,
-                    'match_percentage' => $matchResult['match_percentage'],
-                    'match_reason' => $matchResult['reason'],
-                ];
-            }
-        } elseif ($matchResult && !empty($googlePlaceName) && $matchResult['match_percentage'] >=30) {
-            // Only direct match available (and it was good enough, >=30%)
-            $response['google_place_name'] = $googlePlaceName;
-            $response['match_percentage'] = $matchResult['match_percentage'];
-            $response['match_reason'] = $matchResult['reason'];
-            $response['message'] = 'Direct match found with Google Maps place name (30% or higher).';
+        } elseif ($matchResult && !empty($googlePlaceName)) {
+            $response['message'] = 'Direct match found with Google Maps place name.';
         } else {
-            // No matches found
-            if ($matchResult && !empty($googlePlaceName)) {
-                $response['direct_match'] = [
-                    'name' => $googlePlaceName,
-                    'match_percentage' => $matchResult['match_percentage'],
-                    'match_reason' => $matchResult['reason'],
-                ];
-                $response['message'] = 'Direct match found but percentage is low. Could not find nearby places (coordinates may not be available in URL).';
-            } else {
-                $response['message'] = 'Could not find matching places. Coordinates may not be available in the URL.';
-            }
+            $response['message'] = 'Could not find matching places. Coordinates may not be available in the URL.';
         }
 
         return response()->json($response);

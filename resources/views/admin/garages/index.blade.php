@@ -28,79 +28,31 @@
 
                         </th>
                         <th>
-                            {{ trans('cruds.garage.fields.id') }}
-                        </th>
-                        <th>
-                            {{ trans('cruds.garage.fields.user') }}
-                        </th>
-                        <th>
                             {{ trans('cruds.garage.fields.title') }}
-                        </th>
-                        <th>
-                            {{ trans('cruds.garage.fields.description') }}
-                        </th>
-                        <th>
-                            {{ trans('cruds.garage.fields.service_description') }}
-                        </th>
-                        <th>
-                            {{ trans('cruds.garage.fields.contact_no') }}
-                        </th>
-                        <th>
-                            {{ trans('cruds.garage.fields.address') }}
-                        </th>
-                        <th>
-                            {{ trans('cruds.garage.fields.city') }}
-                        </th>
-                        <th>
-                            {{ trans('cruds.garage.fields.country') }}
-                        </th>
-                        <th>
-                            {{ trans('cruds.garage.fields.latitude') }}
-                        </th>
-                        <th>
-                            {{ trans('cruds.garage.fields.longitude') }}
-                        </th>
-                        <th>
-                            {{ trans('cruds.garage.fields.status') }}
-                        </th>
-                        <th>
-                            {{ trans('cruds.garage.fields.logo') }}
                         </th>
                         <th>
                             {{ trans('cruds.garage.fields.storefront_image') }}
                         </th>
                         <th>
-                            {{ trans('cruds.garage.fields.gallery') }}
-                        </th>
-                        <th>
-                            {{ trans('cruds.garage.fields.tag') }}
-                        </th>
-                        <th>
-                            {{ trans('cruds.garage.fields.language') }}
-                        </th>
-                        <th>
-                            {{ trans('cruds.garage.fields.specialization') }}
-                        </th>
-                        <th>
-                            {{ trans('cruds.garage.fields.services') }}
-                        </th>
-                        <th>
-                            {{ trans('cruds.garage.fields.category') }}
-                        </th>
-                        <th>
-                            {{ trans('cruds.garage.fields.rating') }}
-                        </th>
-                        <th>
-                            {{ trans('cruds.garage.fields.registered_by') }}
+                            {{ trans('cruds.garage.fields.date') }}
                         </th>
                         <th>
                             {{ trans('cruds.garage.fields.surveyor') }}
                         </th>
                         <th>
-                            {{ trans('cruds.garage.fields.date') }}
+                            {{ trans('cruds.garage.fields.description') }}
                         </th>
                         <th>
-                            {{ trans('cruds.garage.fields.maps_share_link') }}
+                            {{ trans('cruds.garage.fields.language') }}
+                        </th>
+                        <th>
+                            {{ trans('cruds.garage.fields.status') }}
+                        </th>
+                        <th>
+                            Confidence Level
+                        </th>
+                        <th>
+                            Location Verification
                         </th>
                         <th>
                             &nbsp;
@@ -114,47 +66,7 @@
 
                             </td>
                             <td>
-                                {{ $garage->id ?? '' }}
-                            </td>
-                            <td>
-                                {{ $garage->user->name ?? '' }}
-                            </td>
-                            <td>
                                 {{ $garage->title ?? '' }}
-                            </td>
-                            <td>
-                                {{ $garage->description ?? '' }}
-                            </td>
-                            <td>
-                                {{ $garage->service_description ?? '' }}
-                            </td>
-                            <td>
-                                {{ $garage->contact_no ?? '' }}
-                            </td>
-                            <td>
-                                {{ $garage->address ?? '' }}
-                            </td>
-                            <td>
-                                {{ $garage->city ?? '' }}
-                            </td>
-                            <td>
-                                {{ $garage->country->name ?? '' }}
-                            </td>
-                            <td>
-                                {{ $garage->latitude ?? '' }}
-                            </td>
-                            <td>
-                                {{ $garage->longitude ?? '' }}
-                            </td>
-                            <td>
-                                {{ App\Models\Garage::STATUS_SELECT[$garage->status] ?? '' }}
-                            </td>
-                            <td>
-                                @if($garage->logo)
-                                    <a href="{{ $garage->logo->getUrl() }}" target="_blank" style="display: inline-block">
-                                        <img src="{{ $garage->logo->getUrl('thumb') }}">
-                                    </a>
-                                @endif
                             </td>
                             <td>
                                 @if($garage->storefront_image)
@@ -164,16 +76,13 @@
                                 @endif
                             </td>
                             <td>
-                                @foreach($garage->gallery as $key => $media)
-                                    <a href="{{ $media->getUrl() }}" target="_blank" style="display: inline-block">
-                                        <img src="{{ $media->getUrl('thumb') }}">
-                                    </a>
-                                @endforeach
+                                {{ $garage->updated_at ? $garage->updated_at->format('Y-m-d') : '' }}
                             </td>
                             <td>
-                                @foreach($garage->tags as $key => $item)
-                                    <span class="badge badge-info">{{ $item->title }}</span>
-                                @endforeach
+                                {{ $garage->surveyor->name ?? '' }}
+                            </td>
+                            <td>
+                                {{ $garage->description ?? '' }}
                             </td>
                             <td>
                                 @foreach($garage->languages as $key => $item)
@@ -181,34 +90,25 @@
                                 @endforeach
                             </td>
                             <td>
-                                @foreach($garage->specializations as $key => $item)
-                                    <span class="badge badge-info">{{ $item->title }}</span>
-                                @endforeach
+                                {{ App\Models\Garage::STATUS_SELECT[$garage->status] ?? '' }}
                             </td>
-                            <td>
-                                @foreach($garage->services as $key => $item)
-                                    <span class="badge badge-info">{{ $item->title }}</span>
-                                @endforeach
+                            <td class="confidence-value" data-garage-id="{{ $garage->id }}">
+                                @if($garage->confidence !== null)
+                                    {{ $garage->confidence }}%
+                                @endif
                             </td>
-                            <td>
-                                @foreach($garage->categories as $key => $item)
-                                    <span class="badge badge-info">{{ $item->title }}</span>
-                                @endforeach
-                            </td>
-                            <td>
-                                {{ $garage->rating ?? '' }}
-                            </td>
-                            <td>
-                                {{ App\Models\Garage::REGISTERED_BY_SELECT[$garage->registered_by] ?? '' }}
-                            </td>
-                            <td>
-                                {{ $garage->surveyor->name ?? '' }}
-                            </td>
-                            <td>
-                                {{ $garage->updated_at ? $garage->updated_at->format('Y-m-d') : '' }}
-                            </td>
-                            <td>
-                                {{ $garage->maps_share_link ?? '' }}
+                            <td class="location-verified" data-garage-id="{{ $garage->id }}">
+                                @if($garage->location_verified)
+                                    @if($garage->location_verified === 'verified')
+                                        <span class="badge badge-success">Verified</span>
+                                    @elseif($garage->location_verified === 'human_verification_required')
+                                        <span class="badge badge-warning">Human Verification Required</span>
+                                    @elseif($garage->location_verified === 'unverified')
+                                        <span class="badge badge-danger">Unverified</span>
+                                    @else
+                                        <span class="badge badge-secondary">{{ ucfirst(str_replace('_', ' ', $garage->location_verified)) }}</span>
+                                    @endif
+                                @endif
                             </td>
                             <td>
                                 @can('garage_show')
@@ -222,6 +122,12 @@
                                         {{ trans('global.edit') }}
                                     </a>
                                 @endcan
+
+                                @if(($garage->confidence === null || $garage->confidence < 80))
+                                    <button type="button" class=" text-white btn btn-xs btn-warning verify-btn" data-garage-id="{{ $garage->id }}" data-garage-title="{{ $garage->title }}">
+                                        Verify
+                                    </button>
+                                @endif
 
                                 @can('garage_delete')
                                     <form action="{{ route('admin.garages.destroy', $garage->id) }}" method="POST" onsubmit="return confirm('{{ trans('global.areYouSure') }}');" style="display: inline-block;">
@@ -246,6 +152,7 @@
 @endsection
 @section('scripts')
 @parent
+<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
 <script>
     $(function () {
   let dtButtons = $.extend(true, [], $.fn.dataTable.defaults.buttons)
@@ -282,12 +189,127 @@
   $.extend(true, $.fn.dataTable.defaults, {
     orderCellsTop: true,
     order: [[ 1, 'desc' ]],
-    pageLength: 100,
+    pageLength: 10,
   });
   let table = $('.datatable-Garage:not(.ajaxTable)').DataTable({ buttons: dtButtons })
   $('a[data-toggle="tab"]').on('shown.bs.tab click', function(e){
       $($.fn.dataTable.tables(true)).DataTable()
           .columns.adjust();
+  });
+  
+  // Handle Verify button click
+  $(document).on('click', '.verify-btn', function() {
+    var button = $(this);
+    var garageId = button.data('garage-id');
+    var garageTitle = button.data('garage-title');
+    
+    // Disable button and show loading state
+    button.prop('disabled', true).html('<i class="fa fa-spinner fa-spin"></i> Verifying...');
+    
+    // Call the API
+    $.ajax({
+      url: '/api/garage-match-url/' + garageId,
+      method: 'GET',
+      dataType: 'json',
+      success: function(response) {
+        if (response.status === 'success') {
+          // Use match_percentage directly from response (always at root level)
+          var confidence = response.match_percentage !== undefined && response.match_percentage !== null 
+            ? response.match_percentage 
+            : 0;
+          
+          // Use location_verified directly from API response
+          var locationVerified = response.garage && response.garage.location_verified 
+            ? response.garage.location_verified 
+            : null;
+          
+          // Determine match source for success message
+          var matchSource = '';
+          var directMatchPercentage = response.direct_match && response.direct_match.match_percentage !== undefined 
+            ? response.direct_match.match_percentage 
+            : 0;
+          var highestNearbyMatchPercentage = response.nearby_places && response.nearby_places.length > 0 
+            ? response.nearby_places[0].match_percentage 
+            : 0;
+          
+          if (confidence > 0) {
+            if (directMatchPercentage === confidence && highestNearbyMatchPercentage === confidence) {
+              // Both have same percentage (tie)
+              matchSource = ' (from direct match and nearby places)';
+            } else if (directMatchPercentage === confidence) {
+              matchSource = ' (from direct match)';
+            } else if (highestNearbyMatchPercentage === confidence) {
+              matchSource = ' (from nearby places)';
+            } else {
+              matchSource = '';
+            }
+          }
+          
+          // Update confidence value
+          var confidenceCell = $('.confidence-value[data-garage-id="' + garageId + '"]');
+          confidenceCell.text(confidence + '%');
+          
+          // Update location verified badge
+          var locationCell = $('.location-verified[data-garage-id="' + garageId + '"]');
+          var badgeClass = 'badge-secondary';
+          var badgeText = 'Unknown';
+          
+          if (locationVerified === 'verified') {
+            badgeClass = 'badge-success';
+            badgeText = 'Verified';
+          } else if (locationVerified === 'human_verification_required') {
+            badgeClass = 'badge-warning';
+            badgeText = 'Human Verification Required';
+          } else if (locationVerified === 'unverified') {
+            badgeClass = 'badge-danger';
+            badgeText = 'Unverified';
+          } else if (locationVerified) {
+            badgeText = locationVerified.replace(/_/g, ' ').replace(/\b\w/g, function(l) { return l.toUpperCase(); });
+          }
+          
+          locationCell.html('<span class="badge ' + badgeClass + '">' + badgeText + '</span>');
+          
+          // Hide verify button if confidence is >= 80
+          if (confidence >= 80) {
+            button.remove();
+          } else {
+            button.prop('disabled', false).html('Verify');
+          }
+          
+          // Show success message with match source
+          Swal.fire({
+            icon: 'success',
+            title: 'Success!',
+            text: 'Garage verified successfully! Confidence: ' + confidence + '%' + matchSource,
+            confirmButtonColor: '#3085d6',
+            confirmButtonText: 'OK'
+          });
+        } else {
+          Swal.fire({
+            icon: 'error',
+            title: 'Error',
+            text: response.message || 'Failed to verify garage',
+            confirmButtonColor: '#3085d6',
+            confirmButtonText: 'OK'
+          });
+          button.prop('disabled', false).html('Verify');
+        }
+      },
+      error: function(xhr) {
+        var errorMessage = 'Failed to verify garage';
+        if (xhr.responseJSON && xhr.responseJSON.message) {
+          errorMessage = xhr.responseJSON.message;
+        }
+        Swal.fire({
+          icon: 'error',
+          title: 'Error',
+          text: errorMessage,
+          confirmButtonColor: '#3085d6',
+          confirmButtonText: 'OK'
+        });
+        button.prop('disabled', false).html('Verify');
+      }
+    });
   });
   
 })
