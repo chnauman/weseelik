@@ -122,3 +122,7 @@ Route::get('/token', function () {
 // web.php
 Route::get('/json-editor', [JsonEditorController::class, 'index']);
 Route::post('/json-editor/save', [JsonEditorController::class, 'save'])->name('json-editor.save');
+
+// Google Places Scraper
+Route::get('/scraper', [App\Http\Controllers\GooglePlacesScraperController::class, 'index'])->name('scraper.index');
+Route::post('/scraper/scrape', [App\Http\Controllers\GooglePlacesScraperController::class, 'scrape'])->name('scraper.scrape');

@@ -47,6 +47,26 @@
                             {{ $garage->description }}
                         </td>
                     </tr>
+                    @if($garage->maps_share_link)
+                    <tr>
+                        <th>
+                            Google Maps
+                        </th>
+                        <td>
+                            <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+                                <div style="flex: 1; min-width: 200px;">
+                                    <input type="text" id="mapsUrl" value="{{ $garage->maps_share_link }}" readonly style="width: 100%; padding: 5px; border: 1px solid #ddd; border-radius: 4px;">
+                                </div>
+                                <button type="button" onclick="copyMapsUrl(event)" class="btn btn-sm btn-info" style="white-space: nowrap;">
+                                    <i class="fa fa-copy"></i> Copy URL
+                                </button>
+                                <a href="{{ $garage->maps_share_link }}" target="_blank" class="btn btn-sm btn-primary" style="white-space: nowrap;">
+                                    <i class="fa fa-external-link"></i> View on Google Maps
+                                </a>
+                            </div>
+                        </td>
+                    </tr>
+                    @endif
                     <tr>
                         <th>
                             {{ trans('cruds.garage.fields.service_description') }}
@@ -232,6 +252,44 @@
     </div>
 </div>
 
-
+<script>
+function copyMapsUrl(event) {
+    var urlInput = document.getElementById('mapsUrl');
+    var btn = event.target.closest('button');
+    var originalText = btn.innerHTML;
+    
+    urlInput.select();
+    urlInput.setSelectionRange(0, 99999); // For mobile devices
+    
+    try {
+        document.execCommand('copy');
+        // Show feedback
+        btn.innerHTML = '<i class="fa fa-check"></i> Copied!';
+        btn.classList.remove('btn-info');
+        btn.classList.add('btn-success');
+        
+        setTimeout(function() {
+            btn.innerHTML = originalText;
+            btn.classList.remove('btn-success');
+            btn.classList.add('btn-info');
+        }, 2000);
+    } catch (err) {
+        // Fallback for modern browsers
+        navigator.clipboard.writeText(urlInput.value).then(function() {
+            btn.innerHTML = '<i class="fa fa-check"></i> Copied!';
+            btn.classList.remove('btn-info');
+            btn.classList.add('btn-success');
+            
+            setTimeout(function() {
+                btn.innerHTML = originalText;
+                btn.classList.remove('btn-success');
+                btn.classList.add('btn-info');
+            }, 2000);
+        }).catch(function() {
+            alert('Failed to copy URL');
+        });
+    }
+}
+</script>
 
 @endsection
