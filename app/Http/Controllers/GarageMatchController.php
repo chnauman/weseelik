@@ -225,15 +225,46 @@ Only return valid JSON. Do not include any markdown formatting or additional tex
                         $phone = null;
                     }
 
-                    // Generate Google Maps URL
+                    // Generate Google Maps URL - prioritize name+address (most reliable), then place_id, then coordinates
                     $lat = $place['geometry']['location']['lat'] ?? null;
                     $lng = $place['geometry']['location']['lng'] ?? null;
+                    $placeId = $place['place_id'] ?? null;
                     $googleMapsUrl = null;
                     
-                    if ($lat && $lng) {
+                    // Priority 1: Use place name + address (most reliable for opening exact location)
+                    if (!empty($name)) {
+                        $encodedName = urlencode($name);
+                        $encodedAddress = '';
+                        
+                        // Try formatted_address first, then vicinity
+                        if (!empty($address)) {
+                            $encodedAddress = urlencode($address);
+                        }
+                        
+                        if ($encodedAddress) {
+                            // Use name + address for precise search
+                            $googleMapsUrl = "https://www.google.com/maps/search/?api=1&query={$encodedName},{$encodedAddress}";
+                        } else {
+                            // Just use name with Kuwait if no address available
+                            $googleMapsUrl = "https://www.google.com/maps/search/?api=1&query={$encodedName},Kuwait";
+                        }
+                    }
+                    // Priority 2: Use place_id with name (alternative format)
+                    if (empty($googleMapsUrl) && !empty($placeId) && !empty($name)) {
+                        $encodedPlaceId = urlencode($placeId);
+                        $encodedName = urlencode($name);
+                        // Try format with both query and query_place_id
+                        $googleMapsUrl = "https://www.google.com/maps/search/?api=1&query={$encodedName}&query_place_id={$encodedPlaceId}";
+                    }
+                    // Priority 2b: Alternative place_id format (direct place URL)
+                    if (empty($googleMapsUrl) && !empty($placeId)) {
+                        $encodedPlaceId = urlencode($placeId);
+                        // Direct place format
+                        $googleMapsUrl = "https://www.google.com/maps/place/?q=place_id:{$encodedPlaceId}";
+                    }
+                    // Priority 3: Fallback to coordinates if nothing else available
+                    if (empty($googleMapsUrl) && !empty($lat) && !empty($lng)) {
                         $googleMapsUrl = "https://www.google.com/maps/search/?api=1&query={$lat},{$lng}";
-                    } elseif (isset($place['place_id'])) {
-                        $googleMapsUrl = "https://www.google.com/maps/place/?q=place_id:" . $place['place_id'];
                     }
 
                     $matches[] = [

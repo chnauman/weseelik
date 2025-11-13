@@ -245,12 +245,45 @@ class GooglePlacesScraperService
             }
         }
 
-        // Build Google Maps share link
+        // Build Google Maps share link - prioritize name+address (most reliable), then place_id, then coordinates
         $mapsShareLink = null;
-        if (!empty($location['lat']) && !empty($location['lng'])) {
+        
+        // Priority 1: Use place name + address (most reliable for opening exact location)
+        if (!empty($placeData['name'])) {
+            $name = urlencode($placeData['name']);
+            $address = '';
+            
+            // Try formatted_address first, then vicinity
+            if (!empty($placeData['formatted_address'])) {
+                $address = urlencode($placeData['formatted_address']);
+            } elseif (!empty($placeData['vicinity'])) {
+                $address = urlencode($placeData['vicinity']);
+            }
+            
+            if ($address) {
+                // Use name + address for precise search
+                $mapsShareLink = "https://www.google.com/maps/search/?api=1&query={$name},{$address}";
+            } else {
+                // Just use name with Kuwait if no address available
+                $mapsShareLink = "https://www.google.com/maps/search/?api=1&query={$name},Kuwait";
+            }
+        }
+        // Priority 2: Use place_id with name (alternative format)
+        if (empty($mapsShareLink) && !empty($placeData['place_id']) && !empty($placeData['name'])) {
+            $placeId = urlencode($placeData['place_id']);
+            $name = urlencode($placeData['name']);
+            // Try format with both query and query_place_id
+            $mapsShareLink = "https://www.google.com/maps/search/?api=1&query={$name}&query_place_id={$placeId}";
+        }
+        // Priority 2b: Alternative place_id format (direct place URL)
+        if (empty($mapsShareLink) && !empty($placeData['place_id'])) {
+            $placeId = urlencode($placeData['place_id']);
+            // Direct place format
+            $mapsShareLink = "https://www.google.com/maps/place/?q=place_id:{$placeId}";
+        }
+        // Priority 3: Fallback to coordinates if nothing else available
+        if (empty($mapsShareLink) && !empty($location['lat']) && !empty($location['lng'])) {
             $mapsShareLink = "https://www.google.com/maps/search/?api=1&query={$location['lat']},{$location['lng']}";
-        } elseif (!empty($placeData['place_id'])) {
-            $mapsShareLink = "https://www.google.com/maps/place/?q=place_id:" . $placeData['place_id'];
         }
 
         return [

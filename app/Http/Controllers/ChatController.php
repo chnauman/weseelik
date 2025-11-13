@@ -120,6 +120,7 @@ class ChatController extends Controller
                 - Never ask for all parameters at once. Gather naturally, one by one.
                 - Never ask for obvious info (e.g., if the user says 'in Salmiya', don't ask 'Where are you located?').
                 - Once enough info is available, call the function automatically and politely confirm.
+                - CRITICAL: When garage results are found (via findGarage, listGarages, or getGarageDetails), your response MUST be EXTREMELY MINIMAL. DO NOT list any garage names, addresses, phone numbers, or any garage details in your message. DO NOT format garages as numbered lists. DO NOT include any garage information in your response. Simply say something brief like 'Here are the garages I found in [location]:' or 'Found these garages for you:' and STOP. The garage details are provided separately in a structured format, so you must NEVER include them in your message text. If you see garage results in the tool response, acknowledge with ONLY a brief confirmation sentence - nothing more.
                 - For garage-related queries: If the user asks for automotive services that match the available database services/tags/categories/specializations, use the findGarage function.
                 - For ANY location-based service query that is NOT in the garage database (including restaurants, ATMs, hotels, shopping centers, hospitals, pharmacies, petrol stations, parking lots, car rentals, or any other location-based service), automatically use the findExternalService function. This includes ALL types of businesses and services in Kuwait.
                 - Always ask for the location/area if it's missing when using findExternalService.
@@ -320,6 +321,9 @@ class ChatController extends Controller
         // Extract latitude and longitude from tool results
         $latitude = null;
         $longitude = null;
+        
+        // Collect garage data from garage-related tool calls
+        $garagesData = [];
 
         if (!empty($toolCalls)) {
             // Append assistant message with tool_calls to the history
@@ -347,6 +351,14 @@ class ChatController extends Controller
                 }
 
                 $result = $this->dispatchTool($toolName, $args);
+
+                // Extract garage data from garage-related tool results
+                if (in_array($toolName, ['findGarage', 'listGarages', 'getGarageDetails']) && is_array($result)) {
+                    $extractedGarages = $this->extractGarageDataFromToolResult($result, $toolName);
+                    if (!empty($extractedGarages)) {
+                        $garagesData = array_merge($garagesData, $extractedGarages);
+                    }
+                }
 
                 // Extract lat/lng from tool results (only if we don't have them yet or if these are valid)
                 if (is_array($result)) {
@@ -404,6 +416,100 @@ class ChatController extends Controller
 
             $assistantText = $second->choices[0]->message->content ?? '';
             $tokensUsed += $second->usage->totalTokens ?? 0;
+            
+            // If garages were found, ensure the message is minimal
+            if (!empty($garagesData)) {
+                $assistantText = $this->ensureMinimalGarageMessage($assistantText, $garagesData);
+            }
+            
+            // Check if second response also has tool calls (unlikely but possible)
+            $secondToolCalls = $second->choices[0]->message->toolCalls
+                ?? ($second->choices[0]->message->tool_calls ?? []);
+            
+            if (!empty($secondToolCalls)) {
+                foreach ($secondToolCalls as $tc) {
+                    $toolName = $tc->function->name ?? '';
+                    $argsJson = $tc->function->arguments ?? '{}';
+                    $args = json_decode($argsJson, true);
+                    if (!is_array($args)) {
+                        $args = [];
+                    }
+
+                    $result = $this->dispatchTool($toolName, $args);
+
+                    // Extract garage data from garage-related tool results
+                    if (in_array($toolName, ['findGarage', 'listGarages', 'getGarageDetails']) && is_array($result)) {
+                        $extractedGarages = $this->extractGarageDataFromToolResult($result, $toolName);
+                        if (!empty($extractedGarages)) {
+                            $garagesData = array_merge($garagesData, $extractedGarages);
+                        }
+                    }
+
+                    // Extract lat/lng from tool results
+                    if (is_array($result)) {
+                        $tempLat = null;
+                        $tempLng = null;
+                        
+                        // For findGarage, listGarages, findExternalService - extract from first result
+                        if (isset($result['results']) && is_array($result['results']) && !empty($result['results'])) {
+                            $firstResult = $result['results'][0];
+                            if (isset($firstResult['latitude']) && isset($firstResult['longitude'])) {
+                                $latVal = $firstResult['latitude'];
+                                $lngVal = $firstResult['longitude'];
+                                if ($latVal !== null && $latVal !== '' && $lngVal !== null && $lngVal !== '') {
+                                    $tempLat = is_numeric($latVal) ? (float)$latVal : $latVal;
+                                    $tempLng = is_numeric($lngVal) ? (float)$lngVal : $lngVal;
+                                }
+                            }
+                        }
+                        // For getGarageDetails - extract from result
+                        elseif (isset($result['result']) && is_array($result['result'])) {
+                            if (isset($result['result']['latitude']) && isset($result['result']['longitude'])) {
+                                $latVal = $result['result']['latitude'];
+                                $lngVal = $result['result']['longitude'];
+                                if ($latVal !== null && $latVal !== '' && $lngVal !== null && $lngVal !== '') {
+                                    $tempLat = is_numeric($latVal) ? (float)$latVal : $latVal;
+                                    $tempLng = is_numeric($lngVal) ? (float)$lngVal : $lngVal;
+                                }
+                            }
+                        }
+                        
+                        // Only update if we found valid coordinates
+                        if ($tempLat !== null && $tempLng !== null) {
+                            $latitude = $tempLat;
+                            $longitude = $tempLng;
+                        }
+                    }
+
+                    $history[] = [
+                        'role' => 'tool',
+                        'tool_call_id' => $tc->id ?? '',
+                        'content' => is_string($result) ? $result : json_encode($result),
+                    ];
+                }
+                
+                // If there were tool calls, make one more call to get final response
+                $third = OpenAI::chat()->create([
+                    'model' => $model,
+                    'messages' => $history,
+                    'temperature' => $temperature,
+                    'tools' => $tools,
+                    'tool_choice' => 'auto',
+                ]);
+                
+                $assistantText = $third->choices[0]->message->content ?? '';
+                $tokensUsed += $third->usage->totalTokens ?? 0;
+                
+                // If garages were found, ensure the message is minimal
+                if (!empty($garagesData)) {
+                    $assistantText = $this->ensureMinimalGarageMessage($assistantText, $garagesData);
+                }
+            }
+        }
+        
+        // Final check: if garages were found, ensure the message is minimal
+        if (!empty($garagesData)) {
+            $assistantText = $this->ensureMinimalGarageMessage($assistantText, $garagesData);
         }
 
         // Save assistant response
@@ -422,6 +528,7 @@ class ChatController extends Controller
             'conversation_id' => request()->conversation_id,
             'latitude' => $latitude,
             'longitude' => $longitude,
+            'garage' => !empty($garagesData) ? $garagesData : null,
             'history' => $history,
         ]);
     }
@@ -444,6 +551,178 @@ class ChatController extends Controller
             default:
                 return ['error' => 'Unknown tool: ' . $name];
         }
+    }
+
+    /**
+     * Extract and format garage data from tool results
+     * 
+     * @param array $result Tool result array
+     * @param string $toolName Name of the tool that was called
+     * @return array Formatted garage data array
+     */
+    private function extractGarageDataFromToolResult(array $result, string $toolName): array
+    {
+        $garages = [];
+
+        // Handle different tool result structures
+        if ($toolName === 'getGarageDetails') {
+            // getGarageDetails returns a single garage in 'result' key
+            if (isset($result['status']) && $result['status'] === 'success' && isset($result['result'])) {
+                $garage = $result['result'];
+                $formatted = $this->formatGarageData($garage);
+                if ($formatted) {
+                    $garages[] = $formatted;
+                }
+            }
+        } else {
+            // findGarage and listGarages return multiple garages in 'results' key
+            if (isset($result['status']) && $result['status'] === 'success' && isset($result['results']) && is_array($result['results'])) {
+                foreach ($result['results'] as $garage) {
+                    $formatted = $this->formatGarageData($garage);
+                    if ($formatted) {
+                        $garages[] = $formatted;
+                    }
+                }
+            }
+        }
+
+        return $garages;
+    }
+
+    /**
+     * Format a single garage data to consistent structure
+     * 
+     * @param array $garage Raw garage data
+     * @return array|null Formatted garage data or null if invalid
+     */
+    private function formatGarageData(array $garage): ?array
+    {
+        // Ensure required fields exist
+        if (!isset($garage['id']) || !isset($garage['title'])) {
+            return null;
+        }
+
+        return [
+            'id' => $garage['id'],
+            'title' => $garage['title'] ?? null,
+            'address' => $garage['address'] ?? null,
+            'contact_no' => $garage['contact_no'] ?? null,
+            'maps_share_link' => $garage['maps_share_link'] ?? null,
+            'area' => $garage['area'] ?? null,
+            'city' => $garage['city'] ?? null,
+            'rating' => $garage['rating'] ?? null,
+            'no_of_visits' => $garage['no_of_visits'] ?? null,
+            'description' => $garage['description'] ?? null,
+            'block' => $garage['block'] ?? null,
+            'governate' => $garage['governate'] ?? null,
+            'latitude' => $garage['latitude'] ?? null,
+            'longitude' => $garage['longitude'] ?? null,
+            'home_service' => $garage['home_service'] ?? false,
+            'pickup_service' => $garage['pickup_service'] ?? false,
+            'no_of_likes' => $garage['no_of_likes'] ?? null,
+        ];
+    }
+
+    /**
+     * Ensure the message is minimal when garages are found
+     * If the message contains garage details (names, addresses, phone numbers), replace it with a minimal confirmation
+     * 
+     * @param string $message The assistant's message
+     * @param array $garagesData Array of garage data
+     * @return string Minimal message
+     */
+    private function ensureMinimalGarageMessage(string $message, array $garagesData): string
+    {
+        if (empty($message) || empty($garagesData)) {
+            return $message;
+        }
+
+        $messageLower = strtolower($message);
+        
+        // Check if message contains garage details (names, addresses, phone numbers, numbered lists)
+        $containsGarageDetails = false;
+        
+        // Check for numbered lists (1., 2., etc.) which indicate garage listing
+        if (preg_match('/\d+\.\s*\[?[^\]]+\]?/i', $message)) {
+            $containsGarageDetails = true;
+        }
+        
+        // Check for patterns like "Address:" or "Phone:" which indicate detailed listing
+        if (preg_match('/(Address|Phone|Contact):/i', $message)) {
+            $containsGarageDetails = true;
+        }
+        
+        // Check if message is too long (more than 100 characters suggests detailed listing)
+        if (mb_strlen($message) > 100) {
+            // But allow if it's just a simple sentence without garage details
+            $hasMultipleLines = substr_count($message, "\n") > 2;
+            if ($hasMultipleLines) {
+                $containsGarageDetails = true;
+            }
+        }
+        
+        // Check if message contains any garage titles
+        foreach ($garagesData as $garage) {
+            if (!empty($garage['title'])) {
+                $title = $garage['title'];
+                // Check if message contains the garage title (or significant portion of it)
+                if (mb_strlen($title) > 10 && mb_strpos($message, mb_substr($title, 0, 20)) !== false) {
+                    $containsGarageDetails = true;
+                    break;
+                }
+            }
+            
+            // Check for phone numbers in message
+            if (!empty($garage['contact_no'])) {
+                $phone = $garage['contact_no'];
+                // Check if phone number appears in message (with or without formatting)
+                $phoneFormatted = preg_replace('/\D/', '', $phone);
+                $messagePhoneOnly = preg_replace('/\D/', '', $message);
+                if (strpos($messagePhoneOnly, $phoneFormatted) !== false) {
+                    $containsGarageDetails = true;
+                    break;
+                }
+            }
+            
+            // Check for addresses
+            if (!empty($garage['address'])) {
+                $address = $garage['address'];
+                // Check if address appears in message (check for significant portion)
+                $addressParts = explode(',', $address);
+                if (!empty($addressParts[0]) && mb_strlen($addressParts[0]) > 5) {
+                    if (mb_stripos($message, trim($addressParts[0])) !== false) {
+                        $containsGarageDetails = true;
+                        break;
+                    }
+                }
+            }
+        }
+        
+        // If message contains garage details, replace with minimal message
+        if ($containsGarageDetails) {
+            // Try to extract location from first garage if available
+            $location = null;
+            if (!empty($garagesData[0])) {
+                $firstGarage = $garagesData[0];
+                $location = $firstGarage['area'] ?? $firstGarage['city'] ?? null;
+                
+                // Try to extract location from address
+                if (!$location && !empty($firstGarage['address'])) {
+                    $addressParts = explode(',', $firstGarage['address']);
+                    if (count($addressParts) > 1) {
+                        $location = trim($addressParts[count($addressParts) - 2] ?? '');
+                    }
+                }
+            }
+            
+            if ($location) {
+                return "Here are some garages I found in {$location}.";
+            } else {
+                return "Here are the garages I found.";
+            }
+        }
+        
+        return $message;
     }
 
     private function toolFindGarage(array $args)
@@ -635,6 +914,7 @@ class ChatController extends Controller
                 'contact_no' => $garage->contact_no,
                 'rating' => $garage->rating,
                 'no_of_visits' => $garage->no_of_visits,
+                'maps_share_link' => $garage->maps_share_link,
                 'latitude' => $garage->latitude,
                 'longitude' => $garage->longitude,
             ];
@@ -1041,7 +1321,8 @@ class ChatController extends Controller
         foreach ($places as $place) {
             $placeId = $place['place_id'] ?? '';
             $name = $place['name'] ?? 'Unknown';
-            $address = $place['vicinity'] ?? ($place['formatted_address'] ?? 'Address not available');
+            // Prioritize formatted_address from place data, then vicinity
+            $address = $place['formatted_address'] ?? ($place['vicinity'] ?? null);
             $rating = $place['rating'] ?? null;
             $userRatingsTotal = $place['user_ratings_total'] ?? null;
             
@@ -1059,9 +1340,11 @@ class ChatController extends Controller
                         } elseif (isset($details['opening_hours']['open_now'])) {
                             $openingHours = $details['opening_hours']['open_now'] ? 'Open now' : 'Closed now';
                         }
-                        // Use detailed address if available
-                        if (isset($details['formatted_address'])) {
+                        // Always use formatted_address from details if available (most accurate)
+                        if (isset($details['formatted_address']) && !empty($details['formatted_address'])) {
                             $address = $details['formatted_address'];
+                        } elseif (isset($details['vicinity']) && !empty($details['vicinity']) && empty($address)) {
+                            $address = $details['vicinity'];
                         }
                     }
                 } catch (\Exception $e) {
@@ -1069,18 +1352,45 @@ class ChatController extends Controller
                 }
             }
             
-            // Generate Google Maps URL
+            // Generate Google Maps URL - prioritize name+address (most reliable), then place_id, then coordinates
             $lat = $place['geometry']['location']['lat'] ?? null;
             $lng = $place['geometry']['location']['lng'] ?? null;
             $googleMapsUrl = null;
             
-            if ($lat && $lng) {
+            // Priority 1: Use place name + address (most reliable for opening exact location)
+            if (!empty($name) && $name !== 'Unknown') {
+                $encodedName = urlencode($name);
+                $encodedAddress = '';
+                
+                // Use formatted address if available (most accurate)
+                if (!empty($address) && trim($address) !== '') {
+                    $encodedAddress = urlencode($address);
+                }
+                
+                if ($encodedAddress) {
+                    // Use name + address for precise search (this is the most accurate format)
+                    $googleMapsUrl = "https://www.google.com/maps/search/?api=1&query={$encodedName},{$encodedAddress}";
+                } else {
+                    // Just use name with Kuwait if no address available
+                    $googleMapsUrl = "https://www.google.com/maps/search/?api=1&query={$encodedName},Kuwait";
+                }
+            }
+            // Priority 2: Use place_id with name (alternative format) - more accurate than coordinates
+            if (empty($googleMapsUrl) && !empty($placeId) && !empty($name) && $name !== 'Unknown') {
+                $encodedPlaceId = urlencode($placeId);
+                $encodedName = urlencode($name);
+                // Try format with both query and query_place_id (very accurate)
+                $googleMapsUrl = "https://www.google.com/maps/search/?api=1&query={$encodedName}&query_place_id={$encodedPlaceId}";
+            }
+            // Priority 2b: Alternative place_id format (direct place URL) - still accurate
+            if (empty($googleMapsUrl) && !empty($placeId)) {
+                $encodedPlaceId = urlencode($placeId);
+                // Direct place format
+                $googleMapsUrl = "https://www.google.com/maps/place/?q=place_id:{$encodedPlaceId}";
+            }
+            // Priority 3: Fallback to coordinates if nothing else available (least accurate)
+            if (empty($googleMapsUrl) && !empty($lat) && !empty($lng)) {
                 $googleMapsUrl = "https://www.google.com/maps/search/?api=1&query={$lat},{$lng}";
-            } elseif ($placeId) {
-                $googleMapsUrl = "https://www.google.com/maps/place/?q=place_id:" . $placeId;
-            } else {
-                $mapsQuery = urlencode($address);
-                $googleMapsUrl = "https://www.google.com/maps/search/?api=1&query=" . $mapsQuery;
             }
             
             $formatted[] = [
@@ -1107,7 +1417,7 @@ class ChatController extends Controller
         try {
             $url = "https://maps.googleapis.com/maps/api/place/details/json?" .
                    "place_id={$placeId}&" .
-                   "fields=formatted_phone_number,international_phone_number,formatted_address,opening_hours&" .
+                   "fields=formatted_phone_number,international_phone_number,formatted_address,vicinity,opening_hours&" .
                    "key={$apiKey}";
             
             $response = Http::timeout(10)->get($url);
@@ -1226,9 +1536,40 @@ class ChatController extends Controller
                         }
                     }
                     
-                    // Generate Google Maps URL for this location
-                    $mapsQuery = urlencode($address . ', ' . $location . ', Kuwait');
-                    $googleMapsUrl = "https://www.google.com/maps/search/?api=1&query=" . $mapsQuery;
+                    // Generate Google Maps URL for this location - prioritize name+address (most reliable), then coordinates
+                    $googleMapsUrl = null;
+                    
+                    // Priority 1: Use place name + address (most reliable for opening exact location)
+                    if (!empty($name) && $name !== 'Unknown') {
+                        $encodedName = urlencode($name);
+                        $encodedAddress = '';
+                        
+                        // Build full address with location and Kuwait
+                        if (!empty($address) && $address !== 'Address not available') {
+                            $fullAddress = $address . ', ' . $location . ', Kuwait';
+                            $encodedAddress = urlencode($fullAddress);
+                        } else {
+                            $encodedAddress = urlencode($location . ', Kuwait');
+                        }
+                        
+                        if ($encodedAddress) {
+                            // Use name + address for precise search
+                            $googleMapsUrl = "https://www.google.com/maps/search/?api=1&query={$encodedName},{$encodedAddress}";
+                        } else {
+                            // Just use name with Kuwait if no address available
+                            $googleMapsUrl = "https://www.google.com/maps/search/?api=1&query={$encodedName},Kuwait";
+                        }
+                    }
+                    // Priority 2: Fallback to address only if no name
+                    if (empty($googleMapsUrl) && !empty($address) && $address !== 'Address not available') {
+                        $fullAddress = $address . ', ' . $location . ', Kuwait';
+                        $mapsQuery = urlencode($fullAddress);
+                        $googleMapsUrl = "https://www.google.com/maps/search/?api=1&query=" . $mapsQuery;
+                    }
+                    // Priority 3: Fallback to coordinates if nothing else available
+                    if (empty($googleMapsUrl) && !empty($lat) && !empty($lng)) {
+                        $googleMapsUrl = "https://www.google.com/maps/search/?api=1&query={$lat},{$lng}";
+                    }
                     
                     $formattedResults[] = [
                         'name' => $name,
