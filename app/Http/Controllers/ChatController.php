@@ -608,6 +608,7 @@ class ChatController extends Controller
             'address' => $garage['address'] ?? null,
             'contact_no' => $garage['contact_no'] ?? null,
             'maps_share_link' => $garage['maps_share_link'] ?? null,
+            'image' => $garage['image'] ?? null,
             'area' => $garage['area'] ?? null,
             'city' => $garage['city'] ?? null,
             'rating' => $garage['rating'] ?? null,
@@ -851,6 +852,7 @@ class ChatController extends Controller
                 'home_service' => $garage->home_service ?? false,
                 'pickup_service' => $garage->pickup_service ?? false,
                 'maps_share_link' => $garage->maps_share_link,
+                'image' => $garage->getFirstMediaUrl('logo') ?: $garage->getFirstMediaUrl('storefront_image'),
                 'latitude' => $lat !== null && $lat !== '' ? (is_numeric($lat) ? (float)$lat : $lat) : null,
                 'longitude' => $lng !== null && $lng !== '' ? (is_numeric($lng) ? (float)$lng : $lng) : null,
                 'services' => $garage->services->map(fn($s) => $s->english_title ?? $s->title)->toArray(),
@@ -915,6 +917,7 @@ class ChatController extends Controller
                 'rating' => $garage->rating,
                 'no_of_visits' => $garage->no_of_visits,
                 'maps_share_link' => $garage->maps_share_link,
+                'image' => $garage->getFirstMediaUrl('logo') ?: $garage->getFirstMediaUrl('storefront_image'),
                 'latitude' => $garage->latitude,
                 'longitude' => $garage->longitude,
             ];
@@ -975,6 +978,7 @@ class ChatController extends Controller
                 'home_service' => $garage->home_service ?? false,
                 'pickup_service' => $garage->pickup_service ?? false,
                 'maps_share_link' => $garage->maps_share_link,
+                'image' => $garage->getFirstMediaUrl('logo') ?: $garage->getFirstMediaUrl('storefront_image'),
                 'latitude' => $garage->latitude,
                 'longitude' => $garage->longitude,
                 'services' => $garage->services->map(fn($s) => [
