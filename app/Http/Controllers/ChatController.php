@@ -32,6 +32,10 @@ class ChatController extends Controller
         $userMessage = $validated['message'];
         $model = env('OPENAI_MODEL', 'gpt-4o-mini');
         $temperature = env('OPENAI_TEMPERATURE', 0.7);
+        
+        // Check if this is a "more" request
+        $isMoreRequest = $this->isMoreRequest($userMessage);
+        
         // Resolve or create conversation (supports guests via session id)
         $conversation = "";
         
@@ -47,6 +51,23 @@ class ChatController extends Controller
                 'updated_at' => now(),
             ]);
             $conversation = DB::table('conversations')->where('id', $conversationId)->first();
+        }
+        
+        // Get stored search state if this is a "more" request
+        $searchState = null;
+        if ($isMoreRequest) {
+            $cacheKey = 'garage_search_state_' . $conversation->id;
+            $searchState = Cache::get($cacheKey);
+            
+            // If "more" requested but no stored state, it's not a valid "more" request
+            // Let the AI handle it as a new search
+            if (!$searchState) {
+                $isMoreRequest = false;
+            }
+        } else {
+            // Clear search state for new searches (not "more" requests)
+            $cacheKey = 'garage_search_state_' . $conversation->id;
+            Cache::forget($cacheKey);
         }
 
         // Save user message
@@ -121,6 +142,7 @@ class ChatController extends Controller
                 - Never ask for obvious info (e.g., if the user says 'in Salmiya', don't ask 'Where are you located?').
                 - Once enough info is available, call the function automatically and politely confirm.
                 - CRITICAL: When garage results are found (via findGarage, listGarages, or getGarageDetails), your response MUST be EXTREMELY MINIMAL. DO NOT list any garage names, addresses, phone numbers, or any garage details in your message. DO NOT format garages as numbered lists. DO NOT include any garage information in your response. Simply say something brief like 'Here are the garages I found in [location]:' or 'Found these garages for you:' and STOP. The garage details are provided separately in a structured format, so you must NEVER include them in your message text. If you see garage results in the tool response, acknowledge with ONLY a brief confirmation sentence - nothing more.
+                - PAGINATION: If the user asks for more garages (e.g., 'show more', 'next', 'more garages', 'load more', 'I need more options'), you MUST call the findGarage function again with the EXACT SAME parameters from the previous search. The system will automatically exclude already-shown garages and return the next batch. When showing more results, keep your response minimal as above.
                 - For garage-related queries: If the user asks for automotive services that match the available database services/tags/categories/specializations, use the findGarage function.
                 - For ANY location-based service query that is NOT in the garage database (including restaurants, ATMs, hotels, shopping centers, hospitals, pharmacies, petrol stations, parking lots, car rentals, or any other location-based service), automatically use the findExternalService function. This includes ALL types of businesses and services in Kuwait.
                 - Always ask for the location/area if it's missing when using findExternalService.
@@ -324,6 +346,9 @@ class ChatController extends Controller
         
         // Collect garage data from garage-related tool calls
         $garagesData = [];
+        
+        // Track if we got "no_more_results" status
+        $noMoreResults = false;
 
         if (!empty($toolCalls)) {
             // Append assistant message with tool_calls to the history
@@ -350,13 +375,39 @@ class ChatController extends Controller
                     $args = [];
                 }
 
-                $result = $this->dispatchTool($toolName, $args);
+                // If this is a "more" request and we have stored state, use stored params
+                if ($isMoreRequest && $searchState && $toolName === 'findGarage') {
+                    $args = $searchState['search_params'];
+                }
+                
+                $result = $this->dispatchTool($toolName, $args, $isMoreRequest ? $searchState : null);
 
                 // Extract garage data from garage-related tool results
                 if (in_array($toolName, ['findGarage', 'listGarages', 'getGarageDetails']) && is_array($result)) {
-                    $extractedGarages = $this->extractGarageDataFromToolResult($result, $toolName);
-                    if (!empty($extractedGarages)) {
-                        $garagesData = array_merge($garagesData, $extractedGarages);
+                    // Handle "no_more_results" status - clear search state
+                    if (isset($result['status']) && $result['status'] === 'no_more_results') {
+                        $cacheKey = 'garage_search_state_' . $conversation->id;
+                        Cache::forget($cacheKey);
+                        $noMoreResults = true;
+                        // Message will be set at the end based on noMoreResults flag
+                    } else {
+                        $extractedGarages = $this->extractGarageDataFromToolResult($result, $toolName);
+                        if (!empty($extractedGarages)) {
+                            $garagesData = array_merge($garagesData, $extractedGarages);
+                            
+                            // Store search state for pagination (only for findGarage with success status)
+                            if ($toolName === 'findGarage' && isset($result['status']) && $result['status'] === 'success') {
+                                // If this is a "more" request, update offset in cache
+                                if ($isMoreRequest && $searchState && isset($result['_new_offset'])) {
+                                    $cacheKey = 'garage_search_state_' . $conversation->id;
+                                    $searchState['current_offset'] = $result['_new_offset'];
+                                    Cache::put($cacheKey, $searchState, now()->addHour());
+                                } elseif (!$isMoreRequest && isset($result['_all_garages'])) {
+                                    // New search - store all garages with initial offset (all shown)
+                                    $this->storeSearchState($conversation->id, $args, $result['_all_garages'], $result['_offset'] ?? count($result['_all_garages']));
+                                }
+                            }
+                        }
                     }
                 }
 
@@ -417,8 +468,11 @@ class ChatController extends Controller
             $assistantText = $second->choices[0]->message->content ?? '';
             $tokensUsed += $second->usage->totalTokens ?? 0;
             
-            // If garages were found, ensure the message is minimal
-            if (!empty($garagesData)) {
+            // If no more results, use the message from the tool result
+            if ($noMoreResults && empty($garagesData)) {
+                // Message already set from tool result
+            } elseif (!empty($garagesData)) {
+                // If garages were found, ensure the message is minimal
                 $assistantText = $this->ensureMinimalGarageMessage($assistantText, $garagesData);
             }
             
@@ -435,13 +489,40 @@ class ChatController extends Controller
                         $args = [];
                     }
 
-                    $result = $this->dispatchTool($toolName, $args);
+                    // If this is a "more" request and we have stored state, use stored params
+                    if ($isMoreRequest && $searchState && $toolName === 'findGarage') {
+                        $args = $searchState['search_params'];
+                    }
+                    
+                    $result = $this->dispatchTool($toolName, $args, $isMoreRequest ? $searchState : null);
 
                     // Extract garage data from garage-related tool results
                     if (in_array($toolName, ['findGarage', 'listGarages', 'getGarageDetails']) && is_array($result)) {
-                        $extractedGarages = $this->extractGarageDataFromToolResult($result, $toolName);
-                        if (!empty($extractedGarages)) {
-                            $garagesData = array_merge($garagesData, $extractedGarages);
+                        // Handle "no_more_results" status - clear search state
+                        if (isset($result['status']) && $result['status'] === 'no_more_results') {
+                            $cacheKey = 'garage_search_state_' . $conversation->id;
+                            Cache::forget($cacheKey);
+                            $noMoreResults = true;
+                            // Message will be set at the end based on noMoreResults flag
+                        } else {
+                            $extractedGarages = $this->extractGarageDataFromToolResult($result, $toolName);
+                            if (!empty($extractedGarages)) {
+                                $garagesData = array_merge($garagesData, $extractedGarages);
+                                
+                                // Store search state for pagination (only for findGarage with success status)
+                                if ($toolName === 'findGarage' && isset($result['status']) && $result['status'] === 'success') {
+                                    // If this is a "more" request, update offset in cache
+                                    if ($isMoreRequest && $searchState && isset($result['results'])) {
+                                        $newOffset = ($searchState['current_offset'] ?? 0) + count($result['results']);
+                                        $cacheKey = 'garage_search_state_' . $conversation->id;
+                                        $searchState['current_offset'] = $newOffset;
+                                        Cache::put($cacheKey, $searchState, now()->addHour());
+                                    } elseif (!$isMoreRequest && isset($result['_all_garages'])) {
+                                        // New search - store all garages with initial offset
+                                        $this->storeSearchState($conversation->id, $args, $result['_all_garages'], $result['_offset'] ?? 10);
+                                    }
+                                }
+                            }
                         }
                     }
 
@@ -500,16 +581,37 @@ class ChatController extends Controller
                 $assistantText = $third->choices[0]->message->content ?? '';
                 $tokensUsed += $third->usage->totalTokens ?? 0;
                 
-                // If garages were found, ensure the message is minimal
-                if (!empty($garagesData)) {
+                // If no more results, use the message from the tool result
+                if ($noMoreResults && empty($garagesData)) {
+                    // Message already set from tool result
+                } elseif (!empty($garagesData)) {
+                    // If garages were found, ensure the message is minimal
                     $assistantText = $this->ensureMinimalGarageMessage($assistantText, $garagesData);
                 }
             }
         }
         
-        // Final check: if garages were found, ensure the message is minimal
-        if (!empty($garagesData)) {
+        // Final check: handle message based on results
+        if ($noMoreResults && empty($garagesData)) {
+            // Override AI message with the correct "no more results" message
+            $assistantText = 'All matching garages for your search have been provided to you.';
+        } elseif (!empty($garagesData)) {
+            // If garages were found, ensure the message is minimal
             $assistantText = $this->ensureMinimalGarageMessage($assistantText, $garagesData);
+        } elseif (empty($garagesData)) {
+            // If no garages and not a "no_more_results" case, check if message incorrectly says garages were found
+            $messageLower = strtolower($assistantText ?? '');
+            $garageFoundPhrases = [
+                'here are', 'found these', 'here are some', 'here are the',
+                'found garages', 'garages found', 'here are more'
+            ];
+            foreach ($garageFoundPhrases as $phrase) {
+                if (strpos($messageLower, $phrase) !== false) {
+                    // Override incorrect message
+                    $assistantText = 'No more garages found matching your criteria.';
+                    break;
+                }
+            }
         }
 
         // Save assistant response
@@ -533,11 +635,11 @@ class ChatController extends Controller
         ]);
     }
 
-    private function dispatchTool(string $name, array $args)
+    private function dispatchTool(string $name, array $args, ?array $searchState = null)
     {
         switch ($name) {
             case 'findGarage':
-                return $this->toolFindGarage($args);
+                return $this->toolFindGarage($args, $searchState);
             case 'listGarages':
                 return $this->toolListGarages($args);
             case 'getGarageDetails':
@@ -726,8 +828,84 @@ class ChatController extends Controller
         return $message;
     }
 
-    private function toolFindGarage(array $args)
+    /**
+     * Check if the user message is a "more" request
+     */
+    private function isMoreRequest(string $message): bool
     {
+        $messageLower = strtolower(trim($message));
+        $moreKeywords = [
+            'show more', 'more garages', 'load more', 'next', 'more results',
+            'i need more', 'give me more', 'more options', 'more please',
+            'show me more', 'get more', 'fetch more', 'bring more'
+        ];
+        
+        foreach ($moreKeywords as $keyword) {
+            if (strpos($messageLower, $keyword) !== false) {
+                return true;
+            }
+        }
+        
+        return false;
+    }
+
+    /**
+     * Store search state for pagination - stores ALL garages and tracks offset
+     */
+    private function storeSearchState(int $conversationId, array $searchParams, array $allGarages, int $offset = 0): void
+    {
+        $cacheKey = 'garage_search_state_' . $conversationId;
+        
+        // Store search state with ALL garages and current offset
+        $state = [
+            'conversation_id' => $conversationId, // Store for reference
+            'search_params' => $searchParams,
+            'all_garages' => $allGarages, // Store all garage data
+            'total_count' => count($allGarages),
+            'current_offset' => $offset, // Track how many have been shown
+            'last_updated' => now()->toDateTimeString(),
+        ];
+        
+        Cache::put($cacheKey, $state, now()->addHour());
+        
+        Log::info('Storing search state with all garages', [
+            'conversation_id' => $conversationId,
+            'total_garages' => count($allGarages),
+            'current_offset' => $offset
+        ]);
+    }
+
+    private function toolFindGarage(array $args, ?array $searchState = null)
+    {
+        // If this is a "more" request and we have stored garages, return next batch
+        if ($searchState && isset($searchState['all_garages']) && is_array($searchState['all_garages'])) {
+            $allGarages = $searchState['all_garages'];
+            $currentOffset = $searchState['current_offset'] ?? 0;
+            $perPage = 10;
+            
+            // Get next batch
+            $nextBatch = array_slice($allGarages, $currentOffset, $perPage);
+            
+            if (empty($nextBatch)) {
+                // No more garages to show
+                return [
+                    'status' => 'no_more_results',
+                    'message' => 'All matching garages for your search have been provided to you.',
+                    'results' => [],
+                ];
+            }
+            
+            // Return result with offset info for cache update
+            return [
+                'status' => 'success',
+                'action' => 'find_garage',
+                'count' => count($nextBatch),
+                'results' => $nextBatch,
+                '_new_offset' => $currentOffset + count($nextBatch), // For cache update
+            ];
+        }
+        
+        // This is a new search - fetch ALL matching garages
         $location = $args['location'] ?? null;
         $selectedTags = $args['selected_tags'] ?? [];
         $selectedServices = $args['selected_services'] ?? [];
@@ -799,12 +977,13 @@ class ChatController extends Controller
             });
         }
 
+        // Fetch ALL matching garages (no limit)
         $garages = $query->with(['tags', 'services', 'specializations', 'categories'])
             ->orderBy('rating', 'desc')
             ->orderBy('no_of_visits', 'desc')
-            ->limit(10)
             ->get();
 
+        // If no garages found
         if ($garages->isEmpty()) {
             return [
                 'status' => 'not_found',
@@ -814,7 +993,8 @@ class ChatController extends Controller
         }
 
         $geocodingApiKey = env('GOOGLE_MAPS_API_KEY');
-        $results = $garages->map(function ($garage, $index) use ($geocodingApiKey) {
+        // Format ALL garages
+        $allResults = $garages->map(function ($garage, $index) use ($geocodingApiKey) {
             $lat = $garage->latitude;
             $lng = $garage->longitude;
             
@@ -861,11 +1041,17 @@ class ChatController extends Controller
             ];
         })->toArray();
 
+        // Return ALL matching garages in the first response
+        // Store all garages in cache for pagination (will be stored by handleChat after tool call)
+        
         return [
             'status' => 'success',
             'action' => 'find_garage',
-            'count' => count($results),
-            'results' => $results,
+            'count' => count($allResults),
+            'total_count' => count($allResults),
+            'results' => $allResults, // Return ALL garages, not just first 10
+            '_all_garages' => $allResults, // Internal: all garages for caching
+            '_offset' => count($allResults), // Internal: current offset (all shown)
         ];
     }
 
