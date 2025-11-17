@@ -141,12 +141,22 @@ class ChatController extends Controller
                 - Never ask for all parameters at once. Gather naturally, one by one.
                 - Never ask for obvious info (e.g., if the user says 'in Salmiya', don't ask 'Where are you located?').
                 - Once enough info is available, call the function automatically and politely confirm.
-                - CRITICAL: When garage results are found (via findGarage, listGarages, or getGarageDetails), your response MUST be EXTREMELY MINIMAL. DO NOT list any garage names, addresses, phone numbers, or any garage details in your message. DO NOT format garages as numbered lists. DO NOT include any garage information in your response. Simply say something brief like 'Here are the garages I found in [location]:' or 'Found these garages for you:' and STOP. The garage details are provided separately in a structured format, so you must NEVER include them in your message text. If you see garage results in the tool response, acknowledge with ONLY a brief confirmation sentence - nothing more.
-                - PAGINATION: If the user asks for more garages (e.g., 'show more', 'next', 'more garages', 'load more', 'I need more options'), you MUST call the findGarage function again with the EXACT SAME parameters from the previous search. The system will automatically exclude already-shown garages and return the next batch. When showing more results, keep your response minimal as above.
-                - For garage-related queries: If the user asks for automotive services that match the available database services/tags/categories/specializations, use the findGarage function.
-                - For ANY location-based service query that is NOT in the garage database (including restaurants, ATMs, hotels, shopping centers, hospitals, pharmacies, petrol stations, parking lots, car rentals, or any other location-based service), automatically use the findExternalService function. This includes ALL types of businesses and services in Kuwait.
+                
+                FUNCTION SELECTION - CRITICAL RULES:
+                - CRITICAL: You MUST use findExternalService (NOT findGarage) for the following services: petrol stations, gas stations, fuel stations, ATMs, restaurants, cafes, hotels, shopping malls, shopping centers, hospitals, clinics, pharmacies, parking lots, car rentals, car insurance companies, gyms, supermarkets, grocery stores, banks, or ANY other business/service that is NOT a garage/automotive repair shop. These services are NEVER in the garage database, so you MUST use findExternalService immediately when users ask for them.
+                - For garage-related queries ONLY: If the user asks for automotive repair services, car maintenance, vehicle services, or anything related to fixing/maintaining vehicles that matches the available database services/tags/categories/specializations, use the findGarage function.
+                - Examples: 
+                  * \"petrol station in Salmiya\" → MUST use findExternalService (NOT findGarage)
+                  * \"ATM near me\" → MUST use findExternalService (NOT findGarage)
+                  * \"restaurant in Kuwait City\" → MUST use findExternalService (NOT findGarage)
+                  * \"car AC repair in Hawalli\" → use findGarage (this is a garage service)
+                  * \"mechanic for Toyota\" → use findGarage (this is a garage service)
                 - Always ask for the location/area if it's missing when using findExternalService.
                 - The findExternalService function works ONLY for location-based services in Kuwait region - use it ONLY when a user asks for finding a specific location or business.
+                
+                RESPONSE FORMATTING:
+                - CRITICAL: When garage results are found (via findGarage, listGarages, or getGarageDetails), your response MUST be EXTREMELY MINIMAL. DO NOT list any garage names, addresses, phone numbers, or any garage details in your message. DO NOT format garages as numbered lists. DO NOT include any garage information in your response. Simply say something brief like 'Here are the garages I found in [location]:' or 'Found these garages for you:' and STOP. The garage details are provided separately in a structured format, so you must NEVER include them in your message text. If you see garage results in the tool response, acknowledge with ONLY a brief confirmation sentence - nothing more.
+                - PAGINATION: If the user asks for more garages (e.g., 'show more', 'next', 'more garages', 'load more', 'I need more options'), you MUST call the findGarage function again with the EXACT SAME parameters from the previous search. The system will automatically exclude already-shown garages and return the next batch. When showing more results, keep your response minimal as above.
                 - When displaying results from findExternalService, format them as a numbered list in this exact format (blank line after business name):
                   1. [Business Name](google_maps_url) - Make the business name clickable as a link that opens Google Maps
                   Address: Street name, Area
@@ -302,7 +312,7 @@ class ChatController extends Controller
                 'type' => 'function',
                 'function' => [
                     'name' => 'findExternalService',
-                    'description' => 'Find location-based services and businesses in Kuwait ONLY. Use this function ONLY when the user explicitly asks to find a specific location, business, or service in Kuwait (e.g., restaurants, ATMs, hotels, shopping malls, hospitals, pharmacies, petrol stations, parking lots, car rentals, or any other business/service location). DO NOT use this function for non-location queries like jokes, general knowledge, weather, news, or any conversation that is not about finding a location in Kuwait.',
+                    'description' => 'Find location-based services and businesses in Kuwait ONLY. CRITICAL: Use this function (NOT findGarage) when users ask for: petrol stations, gas stations, fuel stations, ATMs, restaurants, cafes, hotels, shopping malls, hospitals, clinics, pharmacies, parking lots, car rentals, car insurance companies, gyms, supermarkets, banks, or ANY business/service that is NOT a garage/automotive repair shop. These services are NEVER in the garage database. DO NOT use findGarage for these queries. DO NOT use this function for non-location queries like jokes, general knowledge, weather, news, or any conversation that is not about finding a location in Kuwait.',
                     'parameters' => [
                         'type' => 'object',
                         'properties' => [
@@ -349,6 +359,9 @@ class ChatController extends Controller
         
         // Track if we got "no_more_results" status
         $noMoreResults = false;
+        
+        // Track if external service results were found (to prevent garage error messages)
+        $hasExternalServiceResults = false;
 
         if (!empty($toolCalls)) {
             // Append assistant message with tool_calls to the history
@@ -382,6 +395,13 @@ class ChatController extends Controller
                 
                 $result = $this->dispatchTool($toolName, $args, $isMoreRequest ? $searchState : null);
 
+                // Track external service results
+                if ($toolName === 'findExternalService' && is_array($result)) {
+                    if (isset($result['status']) && $result['status'] === 'success' && !empty($result['results'])) {
+                        $hasExternalServiceResults = true;
+                    }
+                }
+                
                 // Extract garage data from garage-related tool results
                 if (in_array($toolName, ['findGarage', 'listGarages', 'getGarageDetails']) && is_array($result)) {
                     // Handle "no_more_results" status - clear search state
@@ -496,6 +516,13 @@ class ChatController extends Controller
                     
                     $result = $this->dispatchTool($toolName, $args, $isMoreRequest ? $searchState : null);
 
+                    // Track external service results
+                    if ($toolName === 'findExternalService' && is_array($result)) {
+                        if (isset($result['status']) && $result['status'] === 'success' && !empty($result['results'])) {
+                            $hasExternalServiceResults = true;
+                        }
+                    }
+
                     // Extract garage data from garage-related tool results
                     if (in_array($toolName, ['findGarage', 'listGarages', 'getGarageDetails']) && is_array($result)) {
                         // Handle "no_more_results" status - clear search state
@@ -592,7 +619,11 @@ class ChatController extends Controller
         }
         
         // Final check: handle message based on results
-        if ($noMoreResults && empty($garagesData)) {
+        // Don't override messages if external service results were found
+        if ($hasExternalServiceResults) {
+            // External service results found - keep the AI's message as is
+            // Don't apply garage-specific message overrides
+        } elseif ($noMoreResults && empty($garagesData)) {
             // Override AI message with the correct "no more results" message
             $assistantText = 'All matching garages for your search have been provided to you.';
         } elseif (!empty($garagesData)) {
