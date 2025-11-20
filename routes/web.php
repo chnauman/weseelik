@@ -126,3 +126,8 @@ Route::post('/json-editor/save', [JsonEditorController::class, 'save'])->name('j
 // Google Places Scraper
 Route::get('/scraper', [App\Http\Controllers\GooglePlacesScraperController::class, 'index'])->name('scraper.index');
 Route::post('/scraper/scrape', [App\Http\Controllers\GooglePlacesScraperController::class, 'scrape'])->name('scraper.scrape');
+
+// Chat Test Page
+Route::get('/chat-test', function () {
+    return view('chat-test');
+})->name('chat-test');

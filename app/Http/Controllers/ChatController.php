@@ -108,7 +108,7 @@ class ChatController extends Controller
         $history = DB::table('conversation_messages')
             ->where('conversation_id', $conversation->id)
             ->orderBy('created_at', 'desc')
-            ->limit(15)
+            ->limit(60)
             ->get()
             ->map(fn($m) => ['role' => $m->role, 'content' => $m->content])
             ->toArray();
