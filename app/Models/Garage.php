@@ -42,7 +42,9 @@ class Garage extends Model implements HasMedia
         'user_id',
         'surveyor_id',
         'title',
+        'title_ar',
         'description',
+        'description_ar',
         'service_description',
         'contact_no',
         'address',
@@ -64,7 +66,9 @@ class Garage extends Model implements HasMedia
         'maps_share_link',
         'home_service',
         'pickup_service',
-        'is_available'
+        'is_available',
+        'is_google_maps',
+        'google_place_id'
     ];
 
     protected function serializeDate(DateTimeInterface $date)

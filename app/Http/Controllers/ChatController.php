@@ -737,7 +737,7 @@ class ChatController extends Controller
 
         return [
             'id' => $garage['id'],
-            'title' => $garage['title'] ?? null,
+            'title' => $this->getPreferredValueFromArray($garage['title'] ?? null, $garage['title_ar'] ?? null),
             'address' => $garage['address'] ?? null,
             'contact_no' => $garage['contact_no'] ?? null,
             'maps_share_link' => $garage['maps_share_link'] ?? null,
@@ -746,7 +746,7 @@ class ChatController extends Controller
             'city' => $garage['city'] ?? null,
             'rating' => $garage['rating'] ?? null,
             'no_of_visits' => $garage['no_of_visits'] ?? null,
-            'description' => $garage['description'] ?? null,
+            'description' => $this->getPreferredValueFromArray($garage['description'] ?? null, $garage['description_ar'] ?? null),
             'block' => $garage['block'] ?? null,
             'governate' => $garage['governate'] ?? null,
             'latitude' => $garage['latitude'] ?? null,
@@ -950,14 +950,41 @@ class ChatController extends Controller
             ->where('country_id', 112) // Only show garages in Kuwait
             ->whereNull('deleted_at');
 
-        // Filter by location (area, city, address)
+        // Filter by location using smart area matching
         if ($location) {
-            $query->where(function ($q) use ($location) {
-                $q->where('area', 'like', "%{$location}%")
-                    ->orWhere('city', 'like', "%{$location}%")
-                    ->orWhere('address', 'like', "%{$location}%")
-                    ->orWhere('governate', 'like', "%{$location}%");
-            });
+            $matchedAreas = $this->matchAreasFromUserRequest($location);
+            
+            if (!empty($matchedAreas)) {
+                // Use matched areas for precise search
+                // Return garages from all matched areas
+                $query->where(function ($q) use ($matchedAreas) {
+                    $firstArea = true;
+                    foreach ($matchedAreas as $matchedArea) {
+                        if ($firstArea) {
+                            $q->where(function ($subQ) use ($matchedArea) {
+                                $subQ->where('area', $matchedArea)
+                                    ->orWhere('city', $matchedArea)
+                                    ->orWhere('governate', $matchedArea);
+                            });
+                            $firstArea = false;
+                        } else {
+                            $q->orWhere(function ($subQ) use ($matchedArea) {
+                                $subQ->where('area', $matchedArea)
+                                    ->orWhere('city', $matchedArea)
+                                    ->orWhere('governate', $matchedArea);
+                            });
+                        }
+                    }
+                });
+            } else {
+                // Fallback to original LIKE search if no match found
+                $query->where(function ($q) use ($location) {
+                    $q->where('area', 'like', "%{$location}%")
+                        ->orWhere('city', 'like', "%{$location}%")
+                        ->orWhere('address', 'like', "%{$location}%")
+                        ->orWhere('governate', 'like', "%{$location}%");
+                });
+            }
         }
 
         // Filter by tags
@@ -1052,8 +1079,8 @@ class ChatController extends Controller
             
             return [
                 'id' => $garage->id,
-                'title' => $garage->title,
-                'description' => $garage->description,
+                'title' => $this->getPreferredValue($garage->title, $garage->title_ar),
+                'description' => $this->getPreferredValue($garage->description, $garage->description_ar),
                 'address' => $garage->address,
                 'area' => $garage->area,
                 'city' => $garage->city,
@@ -1125,8 +1152,8 @@ class ChatController extends Controller
         $results = $garages->map(function ($garage) {
             return [
                 'id' => $garage->id,
-                'title' => $garage->title,
-                'description' => $garage->description,
+                'title' => $this->getPreferredValue($garage->title, $garage->title_ar),
+                'description' => $this->getPreferredValue($garage->description, $garage->description_ar),
                 'address' => $garage->address,
                 'area' => $garage->area,
                 'city' => $garage->city,
@@ -1180,8 +1207,8 @@ class ChatController extends Controller
             'action' => 'get_garage_details',
             'result' => [
                 'id' => $garage->id,
-                'title' => $garage->title,
-                'description' => $garage->description,
+                'title' => $this->getPreferredValue($garage->title, $garage->title_ar),
+                'description' => $this->getPreferredValue($garage->description, $garage->description_ar),
                 'service_description' => $garage->service_description,
                 'address' => $garage->address,
                 'area' => $garage->area,
@@ -1266,7 +1293,7 @@ class ChatController extends Controller
             'status' => 'success',
             'action' => 'get_garage_services',
             'garage_id' => $garage->id,
-            'garage_title' => $garage->title,
+            'garage_title' => $this->getPreferredValue($garage->title, $garage->title_ar),
             'count' => count($services),
             'results' => $services,
         ];
@@ -1400,6 +1427,281 @@ class ChatController extends Controller
         }
         
         return null;
+    }
+
+    /**
+     * Get preferred value (English first, Arabic fallback)
+     * For model objects
+     *
+     * @param string|null $englishValue
+     * @param string|null $arabicValue
+     * @return string|null
+     */
+    private function getPreferredValue(?string $englishValue, ?string $arabicValue): ?string
+    {
+        // Prefer English if available and not empty
+        if (!empty(trim($englishValue ?? ''))) {
+            return $englishValue;
+        }
+        
+        // Fallback to Arabic if English is not available
+        if (!empty(trim($arabicValue ?? ''))) {
+            return $arabicValue;
+        }
+        
+        return null;
+    }
+
+    /**
+     * Get preferred value from array (English first, Arabic fallback)
+     * For array data
+     *
+     * @param string|null $englishValue
+     * @param string|null $arabicValue
+     * @return string|null
+     */
+    private function getPreferredValueFromArray(?string $englishValue, ?string $arabicValue): ?string
+    {
+        return $this->getPreferredValue($englishValue, $arabicValue);
+    }
+
+    /**
+     * Get unique areas from database (cached)
+     * Returns array of unique area, city, and governate values
+     *
+     * @return array
+     */
+    private function getUniqueAreas(): array
+    {
+        $cacheKey = 'unique_garage_areas';
+        
+        return Cache::remember($cacheKey, now()->addDays(7), function () {
+            $areas = Garage::where('status', 'approved')
+                ->whereNull('deleted_at')
+                ->whereNotNull('area')
+                ->where('area', '!=', '')
+                ->distinct()
+                ->pluck('area')
+                ->filter()
+                ->map(fn($area) => trim($area))
+                ->filter(fn($area) => !empty($area))
+                ->unique()
+                ->values()
+                ->toArray();
+
+            $cities = Garage::where('status', 'approved')
+                ->whereNull('deleted_at')
+                ->whereNotNull('city')
+                ->where('city', '!=', '')
+                ->distinct()
+                ->pluck('city')
+                ->filter()
+                ->map(fn($city) => trim($city))
+                ->filter(fn($city) => !empty($city))
+                ->unique()
+                ->values()
+                ->toArray();
+
+            $governates = Garage::where('status', 'approved')
+                ->whereNull('deleted_at')
+                ->whereNotNull('governate')
+                ->where('governate', '!=', '')
+                ->distinct()
+                ->pluck('governate')
+                ->filter()
+                ->map(fn($governate) => trim($governate))
+                ->filter(fn($governate) => !empty($governate))
+                ->unique()
+                ->values()
+                ->toArray();
+
+            // Combine and return unique values
+            return array_values(array_unique(array_merge($areas, $cities, $governates)));
+        });
+    }
+
+    /**
+     * Match user's area request to database areas
+     * Tries exact match first, then uses OpenAI for fuzzy matching
+     *
+     * @param string $userRequest The location/area mentioned by user
+     * @return array Array of matched area names from database
+     */
+    private function matchAreasFromUserRequest(string $userRequest): array
+    {
+        if (empty(trim($userRequest))) {
+            return [];
+        }
+
+        $userRequest = trim($userRequest);
+        $uniqueAreas = $this->getUniqueAreas();
+
+        if (empty($uniqueAreas)) {
+            return [];
+        }
+
+        // Step 1: Try exact match (case-insensitive)
+        $exactMatches = [];
+        $userRequestLower = strtolower($userRequest);
+        
+        foreach ($uniqueAreas as $area) {
+            $areaLower = strtolower(trim($area));
+            if ($areaLower === $userRequestLower) {
+                $exactMatches[] = $area;
+            }
+        }
+
+        if (!empty($exactMatches)) {
+            return array_unique($exactMatches);
+        }
+
+        // Step 2: Try fuzzy match (remove spaces, special chars for comparison)
+        $normalize = function($str) {
+            return preg_replace('/[^a-z0-9]/', '', strtolower($str));
+        };
+        
+        $userRequestNormalized = $normalize($userRequest);
+        $fuzzyMatches = [];
+        
+        foreach ($uniqueAreas as $area) {
+            $areaNormalized = $normalize($area);
+            if ($areaNormalized === $userRequestNormalized) {
+                $fuzzyMatches[] = $area;
+            }
+        }
+
+        if (!empty($fuzzyMatches)) {
+            return array_unique($fuzzyMatches);
+        }
+
+        // Step 3: Use OpenAI to match user request to database areas
+        try {
+            $matchedAreas = $this->matchAreasWithOpenAI($userRequest, $uniqueAreas);
+            if (!empty($matchedAreas)) {
+                return array_unique($matchedAreas);
+            }
+        } catch (\Exception $e) {
+            Log::warning("OpenAI area matching failed: " . $e->getMessage());
+        }
+
+        // Step 4: Fallback to partial match (contains)
+        $partialMatches = [];
+        foreach ($uniqueAreas as $area) {
+            $areaLower = strtolower($area);
+            if (strpos($areaLower, $userRequestLower) !== false || strpos($userRequestLower, $areaLower) !== false) {
+                $partialMatches[] = $area;
+            }
+        }
+
+        return array_unique($partialMatches);
+    }
+
+    /**
+     * Use OpenAI to match user request to database areas
+     * Handles spelling differences and variations
+     *
+     * @param string $userRequest
+     * @param array $availableAreas
+     * @return array
+     */
+    private function matchAreasWithOpenAI(string $userRequest, array $availableAreas): array
+    {
+        $apiKey = env('OPENAI_API_KEY');
+        if (empty($apiKey)) {
+            return [];
+        }
+
+        $model = env('OPENAI_MODEL', 'gpt-4o-mini');
+        
+        // Limit areas list to avoid token limits (take first 200)
+        $areasToCheck = array_slice($availableAreas, 0, 200);
+        $areasList = implode(', ', $areasToCheck);
+
+        $prompt = "The user is asking for garages in a specific area/location in Kuwait. 
+
+Available areas in the database (exact names as stored):
+{$areasList}
+
+User's request: \"{$userRequest}\"
+
+Your task: Match the user's request to one or more areas from the database list above. Consider:
+- Spelling variations (e.g., 'al ahmedi' vs 'alahmadi' vs 'Al Ahmadi')
+- Common abbreviations
+- Alternative names
+- Typos or misspellings
+
+Return a JSON object with a 'matched_areas' key containing an array of matched area names exactly as they appear in the database list above. If no match is found, return an empty array.
+
+Example response format:
+{\"matched_areas\": [\"Salmiya\", \"Hawalli\"]}
+
+Return ONLY the JSON object, no additional text or explanation.";
+
+        try {
+            $response = OpenAI::chat()->create([
+                'model' => $model,
+                'messages' => [
+                    [
+                        'role' => 'system',
+                        'content' => 'You are a location matching assistant. Match user location requests to exact database area names. Return only valid JSON objects with a matched_areas array.'
+                    ],
+                    [
+                        'role' => 'user',
+                        'content' => $prompt
+                    ]
+                ],
+                'temperature' => 0.1, // Low temperature for consistent matching
+                'response_format' => ['type' => 'json_object'],
+            ]);
+
+            $content = trim($response->choices[0]->message->content ?? '');
+            
+            if (empty($content)) {
+                return [];
+            }
+
+            // Parse JSON response
+            $data = json_decode($content, true);
+            
+            if (json_last_error() === JSON_ERROR_NONE && is_array($data)) {
+                // Extract matched_areas from response
+                $matchedAreas = $data['matched_areas'] ?? [];
+                
+                if (!is_array($matchedAreas)) {
+                    return [];
+                }
+
+                // Validate that all matched areas exist in our database
+                $validatedAreas = [];
+                foreach ($matchedAreas as $area) {
+                    if (is_string($area) && in_array($area, $availableAreas)) {
+                        $validatedAreas[] = $area;
+                    }
+                }
+
+                return $validatedAreas;
+            }
+
+            // Fallback: try to extract matched_areas from text response
+            if (preg_match('/"matched_areas"\s*:\s*\[(.*?)\]/', $content, $matches)) {
+                $arrayContent = '[' . $matches[1] . ']';
+                $data = json_decode($arrayContent, true);
+                if (json_last_error() === JSON_ERROR_NONE && is_array($data)) {
+                    $validatedAreas = [];
+                    foreach ($data as $area) {
+                        if (is_string($area) && in_array($area, $availableAreas)) {
+                            $validatedAreas[] = $area;
+                        }
+                    }
+                    return $validatedAreas;
+                }
+            }
+
+        } catch (\Exception $e) {
+            Log::error("OpenAI area matching error: " . $e->getMessage());
+        }
+
+        return [];
     }
 
     /**
