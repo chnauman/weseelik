@@ -104,6 +104,10 @@ class ChatController extends Controller
             ->pluck('display_title')
             ->implode(', ');
 
+        // Get unique areas from database (cached)
+        $uniqueAreas = $this->getUniqueAreas();
+        $areas = !empty($uniqueAreas) ? implode(', ', array_slice($uniqueAreas, 0, 200)) : ''; // Limit to 200 to avoid token limits
+
         // Load recent history and prepend system prompt (typo fixed)
         $history = DB::table('conversation_messages')
             ->where('conversation_id', $conversation->id)
@@ -124,13 +128,16 @@ class ChatController extends Controller
                 Your job is to help people find a garage based on their needs. Always greet the user warmly but casually.
                 Be calm, concise, and human — usually reply in 1–2 lines, or rarely 3 short lines when it feels natural.
 
-                You can use the following information to understand the user’s intent and help find a garage:
+                You can use the following information to understand the user's intent and help find a garage:
+                - Available Areas/Locations in Kuwait: $areas
                 - Tags: $tags
                 - Specializations: $specializations
                 - Services: $services
                 - Categories: $categories
 
-                When the user describes a problem (e.g., 'my car’s AC is not cooling'), intelligently map it to relevant tags, services, specializations, or categories, and pass them in the function call as arrays:
+                When the user mentions a location or area, try to match it to one of the available areas listed above. Use the exact area name from the list when calling the findGarage function. If the user mentions a location that's not in the list, use their exact wording and the system will try to match it.
+
+                When the user describes a problem (e.g., 'my car's AC is not cooling'), intelligently map it to relevant tags, services, specializations, or categories, and pass them in the function call as arrays:
                 - 'selected_tags': inferred issue tags
                 - 'selected_specializations': relevant expertise or brand specialization
                 - 'selected_services': relevant garage services
@@ -187,7 +194,7 @@ class ChatController extends Controller
                         'properties' => [
                             'location' => [
                                 'type' => 'string',
-                                'description' => 'The location or area name where the user wants to find a garage.'
+                                'description' => 'The location or area name where the user wants to find a garage. Try to match the user\'s location mention to one of the available areas in Kuwait. Use the exact area name if possible, otherwise use the user\'s exact wording.'
                             ],
                             'vehicle_brand' => [
                                 'type' => 'string',
