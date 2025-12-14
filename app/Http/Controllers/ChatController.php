@@ -104,9 +104,9 @@ class ChatController extends Controller
             ->pluck('display_title')
             ->implode(', ');
 
-        // Get unique areas from database (cached)
+        // Get unique areas from database (cached) - show all areas for intelligent matching
         $uniqueAreas = $this->getUniqueAreas();
-        $areas = !empty($uniqueAreas) ? implode(', ', array_slice($uniqueAreas, 0, 200)) : ''; // Limit to 200 to avoid token limits
+        $areas = !empty($uniqueAreas) ? implode(', ', $uniqueAreas) : ''; // Show all areas for better matching
 
         // Load recent history and prepend system prompt (typo fixed)
         $history = DB::table('conversation_messages')
@@ -135,7 +135,24 @@ class ChatController extends Controller
                 - Services: $services
                 - Categories: $categories
 
-                When the user mentions a location or area, try to match it to one of the available areas listed above. Use the exact area name from the list when calling the findGarage function. If the user mentions a location that's not in the list, use their exact wording and the system will try to match it.
+                CRITICAL - INTELLIGENT AREA MATCHING:
+                When the user mentions a location or area, you MUST intelligently match it to one of the available areas listed above. This is crucial for finding garages.
+                
+                Matching rules:
+                1. Look for EXACT matches first (case-insensitive)
+                2. Look for PARTIAL matches - if user says \"shuaikh\" or \"shuaikh area\", match it to \"shuwaikh industrial\" or \"shuwaikh\" if those exist in the list
+                3. Handle spelling variations - \"shuaikh\" = \"shuwaikh\", \"salmiya\" = \"salmiyah\", etc.
+                4. Handle area suffixes - if user says \"hawalli\" and list has \"hawalli industrial\" or \"hawalli residential\", use the one that best matches
+                5. Handle common abbreviations and variations
+                6. If multiple matches exist (e.g., \"shuwaikh\" and \"shuwaikh industrial\"), prefer the more specific one if the user's request is specific, otherwise use the broader match
+                7. If you find a match (exact or partial), ALWAYS use the EXACT area name from the list above when calling findGarage function
+                8. Only use the user's exact wording if NO match can be found in the list above
+                
+                Examples:
+                - User: \"shuaikh area\" → Match to \"shuwaikh industrial\" or \"shuwaikh\" (if in list)
+                - User: \"salmiya\" → Match to \"salmiya\" or \"salmiyah\" (if in list)
+                - User: \"hawalli\" → Match to \"hawalli\", \"hawalli industrial\", or \"hawalli residential\" (whichever exists)
+                - User: \"kuwait city\" → Match to \"kuwait city\" or similar variation in list
 
                 When the user describes a problem (e.g., 'my car's AC is not cooling'), intelligently map it to relevant tags, services, specializations, or categories, and pass them in the function call as arrays:
                 - 'selected_tags': inferred issue tags
@@ -194,7 +211,7 @@ class ChatController extends Controller
                         'properties' => [
                             'location' => [
                                 'type' => 'string',
-                                'description' => 'The location or area name where the user wants to find a garage. Try to match the user\'s location mention to one of the available areas in Kuwait. Use the exact area name if possible, otherwise use the user\'s exact wording.'
+                                'description' => 'The location or area name where the user wants to find a garage. CRITICAL: You MUST intelligently match the user\'s location to one of the available areas listed in the system prompt. Handle spelling variations (e.g., "shuaikh" → "shuwaikh industrial"), partial matches, and area suffixes. Always use the EXACT area name from the available areas list when a match is found. Only use the user\'s exact wording if no match exists in the available areas list.'
                             ],
                             'vehicle_brand' => [
                                 'type' => 'string',
