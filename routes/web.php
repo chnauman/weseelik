@@ -134,6 +134,6 @@ Route::get('/chat-test', function () {
 })->name('chat-test');
 
 Route::get('/unique-locations', function () {
-    $unique_locations = Garage::select('area')->distinct()->get();
+    $unique_locations = Garage::select('area')->distinct()->get()->toArray();
     dd($unique_locations);
 })->name('unique-locations');
