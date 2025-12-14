@@ -4,6 +4,7 @@ use App\Models\User;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\JsonEditorController;
+use App\Models\Garage;
 
 Route::get('/', function () {
     return view('user.home');
@@ -131,3 +132,8 @@ Route::post('/scraper/scrape', [App\Http\Controllers\GooglePlacesScraperControll
 Route::get('/chat-test', function () {
     return view('chat-test');
 })->name('chat-test');
+
+Route::get('/unique-locations', function () {
+    $unique_locations = Garage::select('area')->distinct()->get()->toArray();
+    dd($unique_locations);
+})->name('unique-locations');
