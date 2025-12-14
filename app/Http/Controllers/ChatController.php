@@ -412,9 +412,45 @@ class ChatController extends Controller
                     $args = [];
                 }
 
-                // If this is a "more" request and we have stored state, use stored params
+                // If this is a "more" request and we have stored state, validate and use stored params
                 if ($isMoreRequest && $searchState && $toolName === 'findGarage') {
-                    $args = $searchState['search_params'];
+                    // Validate that the search params match (to avoid using wrong cached results)
+                    $cachedParams = $searchState['search_params'] ?? [];
+                    $currentParams = $args;
+                    
+                    // Normalize for comparison (ignore null/empty differences)
+                    $normalizeParams = function($params) {
+                        $normalized = [];
+                        foreach ($params as $key => $value) {
+                            if (is_array($value)) {
+                                $normalized[$key] = array_filter(array_map('trim', $value));
+                                sort($normalized[$key]);
+                            } else {
+                                $normalized[$key] = trim($value ?? '');
+                            }
+                        }
+                        return $normalized;
+                    };
+                    
+                    $cachedNormalized = $normalizeParams($cachedParams);
+                    $currentNormalized = $normalizeParams($currentParams);
+                    
+                    // If params match, use cached params; otherwise treat as new search
+                    if ($cachedNormalized == $currentNormalized) {
+                        $args = $searchState['search_params'];
+                        Log::info('Using cached search params for "more" request', ['params' => $args]);
+                    } else {
+                        // Params don't match - this is actually a new search, not a "more" request
+                        Log::info('Search params changed - treating as new search instead of "more"', [
+                            'cached' => $cachedParams,
+                            'current' => $currentParams
+                        ]);
+                        $isMoreRequest = false;
+                        $searchState = null;
+                        // Clear the cache for this conversation
+                        $cacheKey = 'garage_search_state_' . $conversation->id;
+                        Cache::forget($cacheKey);
+                    }
                 }
                 
                 $result = $this->dispatchTool($toolName, $args, $isMoreRequest ? $searchState : null);
@@ -978,10 +1014,18 @@ class ChatController extends Controller
         if ($location) {
             $matchedAreas = $this->matchAreasFromUserRequest($location);
             
+            // Log for debugging
+            Log::info('Area matching result', [
+                'user_request' => $location,
+                'matched_areas' => $matchedAreas,
+                'match_count' => count($matchedAreas)
+            ]);
+            
             if (!empty($matchedAreas)) {
                 // Use matched areas for precise search
-                // Return garages from all matched areas
-                $query->where(function ($q) use ($matchedAreas) {
+                // Also search in address field to catch garages that might have the location in address
+                $query->where(function ($q) use ($matchedAreas, $location) {
+                    // First, try exact matches on area, city, governate
                     $firstArea = true;
                     foreach ($matchedAreas as $matchedArea) {
                         if ($firstArea) {
@@ -999,6 +1043,15 @@ class ChatController extends Controller
                             });
                         }
                     }
+                    
+                    // Also search in address field for the matched areas (in case area/city/governate don't match but address does)
+                    foreach ($matchedAreas as $matchedArea) {
+                        $q->orWhere('address', 'like', "%{$matchedArea}%");
+                    }
+                    
+                    // Also do a LIKE search on the original location as a fallback
+                    // This catches cases where the match might not be perfect
+                    $q->orWhere('address', 'like', "%{$location}%");
                 });
             } else {
                 // Fallback to original LIKE search if no match found
@@ -1065,8 +1118,78 @@ class ChatController extends Controller
             ->orderBy('no_of_visits', 'desc')
             ->get();
 
-        // If no garages found
+        // Log query details for debugging
+        Log::info('Garage search query executed', [
+            'location' => $location,
+            'matched_areas' => $matchedAreas ?? [],
+            'selected_tags' => $selectedTags,
+            'selected_services' => $selectedServices,
+            'selected_specializations' => $selectedSpecializations,
+            'selected_categories' => $selectedCategories,
+            'garages_found' => $garages->count(),
+        ]);
+
+        // If no garages found, try a more lenient search
+        if ($garages->isEmpty() && $location) {
+            // Try a broader search - search in all location fields with LIKE
+            $lenientQuery = Garage::query()
+                ->where('status', 'approved')
+                ->where('is_available', true)
+                ->where('country_id', 112)
+                ->whereNull('deleted_at')
+                ->where(function ($q) use ($location) {
+                    $q->where('area', 'like', "%{$location}%")
+                        ->orWhere('city', 'like', "%{$location}%")
+                        ->orWhere('address', 'like', "%{$location}%")
+                        ->orWhere('governate', 'like', "%{$location}%");
+                });
+            
+            // Apply other filters if they exist
+            if (!empty($selectedTags)) {
+                $lenientQuery->whereHas('tags', function ($q) use ($selectedTags) {
+                    $q->where(function ($subQ) use ($selectedTags) {
+                        foreach ($selectedTags as $tag) {
+                            $subQ->orWhere('title', 'like', "%{$tag}%")
+                                ->orWhere('english_title', 'like', "%{$tag}%");
+                        }
+                    })->whereNull('tags.deleted_at');
+                });
+            }
+            
+            if (!empty($selectedServices)) {
+                $lenientQuery->whereHas('services', function ($q) use ($selectedServices) {
+                    $q->where(function ($subQ) use ($selectedServices) {
+                        foreach ($selectedServices as $service) {
+                            $subQ->orWhere('title', 'like', "%{$service}%")
+                                ->orWhere('english_title', 'like', "%{$service}%");
+                        }
+                    })->whereNull('services.deleted_at');
+                });
+            }
+            
+            $lenientGarages = $lenientQuery->with(['tags', 'services', 'specializations', 'categories'])
+                ->orderBy('rating', 'desc')
+                ->orderBy('no_of_visits', 'desc')
+                ->get();
+            
+            if (!$lenientGarages->isEmpty()) {
+                Log::info('Lenient search found garages', ['count' => $lenientGarages->count()]);
+                $garages = $lenientGarages;
+            }
+        }
+
+        // If still no garages found
         if ($garages->isEmpty()) {
+            Log::warning('No garages found after all search attempts', [
+                'location' => $location,
+                'filters' => [
+                    'tags' => $selectedTags,
+                    'services' => $selectedServices,
+                    'specializations' => $selectedSpecializations,
+                    'categories' => $selectedCategories,
+                ]
+            ]);
+            
             return [
                 'status' => 'not_found',
                 'message' => 'No garages found matching your criteria.',
@@ -1608,16 +1731,70 @@ class ChatController extends Controller
             Log::warning("OpenAI area matching failed: " . $e->getMessage());
         }
 
-        // Step 4: Fallback to partial match (contains)
+        // Step 4: Try partial match - user request contained in area name (e.g., "shuaikh" in "shuwaikh industrial")
         $partialMatches = [];
+        $userRequestNormalized = $normalize($userRequest);
+        
         foreach ($uniqueAreas as $area) {
-            $areaLower = strtolower($area);
-            if (strpos($areaLower, $userRequestLower) !== false || strpos($userRequestLower, $areaLower) !== false) {
+            $areaLower = strtolower(trim($area));
+            $areaNormalized = $normalize($area);
+            
+            // Check if user request is contained in area name (normalized)
+            if (strpos($areaNormalized, $userRequestNormalized) !== false) {
+                $partialMatches[] = $area;
+            }
+            // Also check if area name is contained in user request (normalized)
+            elseif (strpos($userRequestNormalized, $areaNormalized) !== false && strlen($areaNormalized) >= 5) {
+                // Only if area is substantial (at least 5 chars) to avoid false matches
+                $partialMatches[] = $area;
+            }
+            // Check word boundaries - if user says "shuaikh" and area is "shuwaikh industrial"
+            elseif (preg_match('/\b' . preg_quote($userRequestNormalized, '/') . '/i', $areaNormalized)) {
                 $partialMatches[] = $area;
             }
         }
 
-        return array_unique($partialMatches);
+        if (!empty($partialMatches)) {
+            // Sort by relevance: exact word matches first, then by length (shorter = more specific)
+            usort($partialMatches, function($a, $b) use ($userRequestLower, $userRequestNormalized) {
+                $aLower = strtolower($a);
+                $bLower = strtolower($b);
+                $aNorm = preg_replace('/[^a-z0-9]/', '', $aLower);
+                $bNorm = preg_replace('/[^a-z0-9]/', '', $bLower);
+                
+                // Prefer exact word match
+                $aExactWord = ($aLower === $userRequestLower || $aNorm === $userRequestNormalized) ? 1 : 0;
+                $bExactWord = ($bLower === $userRequestLower || $bNorm === $userRequestNormalized) ? 1 : 0;
+                
+                if ($aExactWord !== $bExactWord) {
+                    return $bExactWord - $aExactWord;
+                }
+                
+                // Prefer shorter matches (more specific)
+                return strlen($a) - strlen($b);
+            });
+            
+            return array_unique($partialMatches);
+        }
+
+        // Step 5: Final fallback - very loose partial match
+        $looseMatches = [];
+        foreach ($uniqueAreas as $area) {
+            $areaLower = strtolower($area);
+            // Check if any significant word from user request appears in area
+            $userWords = array_filter(explode(' ', $userRequestLower), function($word) {
+                return strlen(trim($word)) >= 4; // Only words with 4+ chars
+            });
+            
+            foreach ($userWords as $word) {
+                if (strpos($areaLower, $word) !== false) {
+                    $looseMatches[] = $area;
+                    break;
+                }
+            }
+        }
+
+        return array_unique($looseMatches);
     }
 
     /**
