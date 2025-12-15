@@ -72,14 +72,18 @@ class FetchGaragesJob implements ShouldQueue
                             'service_description' => $garage->service_description,
                             'maps_share_link' => $garage->maps_share_link,
                         ];
+                        
+                        // Update cache immediately after each garage is created for real-time display
+                        $stats['status'] = 'processing';
+                        Cache::put("fetch_garages_{$this->jobId}", array_merge($stats, ['garages' => $garages]), 3600);
                     } elseif ($status === 'skipped') {
                         $stats['skipped']++;
+                        // Update cache for skipped items too to show progress
+                        $stats['status'] = 'processing';
+                        Cache::put("fetch_garages_{$this->jobId}", array_merge($stats, ['garages' => $garages]), 3600);
                     } elseif ($status === 'failed') {
                         $stats['failed']++;
-                    }
-
-                    // Update progress periodically
-                    if ($stats['processed'] % 5 == 0) {
+                        // Update cache for failed items too
                         $stats['status'] = 'processing';
                         Cache::put("fetch_garages_{$this->jobId}", array_merge($stats, ['garages' => $garages]), 3600);
                     }

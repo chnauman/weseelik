@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\Garage;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Http;
 use OpenAI\Laravel\Facades\OpenAI;
@@ -25,10 +26,15 @@ class GooglePlacesService
      * @param float $lat
      * @param float $lng
      * @param callable|null $callback Called for each garage processed: callback($garage, $status)
+     * @param int $limit Maximum number of new garages to fetch (default: 50)
      * @return void
      */
-    public function fetchAndStoreGarages(string $area, float $lat, float $lng, ?callable $callback = null): void
+    public function fetchAndStoreGarages(string $area, float $lat, float $lng, ?callable $callback = null, int $limit = 50): void
     {
+        // Get already fetched place IDs for this area from cache
+        $cacheKey = "fetched_place_ids_{$area}";
+        $fetchedPlaceIds = Cache::get($cacheKey, []);
+        
         // Search for nearby places
         $nearbyPlaces = $this->searchNearbyPlaces($lat, $lng);
 
@@ -36,10 +42,32 @@ class GooglePlacesService
             return;
         }
 
+        $newGaragesCount = 0;
+        $updatedPlaceIds = $fetchedPlaceIds;
+
         // Process each nearby place
         foreach ($nearbyPlaces as $place) {
-            // Check if garage already exists
+            // Stop if we've reached the limit
+            if ($newGaragesCount >= $limit) {
+                break;
+            }
+
+            $placeId = $place['place_id'] ?? null;
+            
+            // Skip if this place was already fetched in a previous request
+            if ($placeId && in_array($placeId, $fetchedPlaceIds)) {
+                if ($callback) {
+                    $callback(null, 'skipped');
+                }
+                continue;
+            }
+
+            // Check if garage already exists in database
             if ($this->garageExists($place)) {
+                // Add to fetched list even if it exists (to skip in future requests)
+                if ($placeId && !in_array($placeId, $updatedPlaceIds)) {
+                    $updatedPlaceIds[] = $placeId;
+                }
                 if ($callback) {
                     $callback(null, 'skipped');
                 }
@@ -47,7 +75,7 @@ class GooglePlacesService
             }
 
             // Get place details
-            $placeDetails = $this->getPlaceDetails($place['place_id'] ?? null);
+            $placeDetails = $this->getPlaceDetails($placeId);
             
             if (!$placeDetails) {
                 if ($callback) {
@@ -63,6 +91,12 @@ class GooglePlacesService
             $newGarage = $this->createGarageFromPlace($fullPlaceData, $area);
 
             if ($newGarage) {
+                $newGaragesCount++;
+                // Add place ID to fetched list
+                if ($placeId && !in_array($placeId, $updatedPlaceIds)) {
+                    $updatedPlaceIds[] = $placeId;
+                }
+                
                 if ($callback) {
                     $callback($newGarage, 'created');
                 }
@@ -75,16 +109,20 @@ class GooglePlacesService
             // Delay between places
             sleep($this->delayBetweenRequests);
         }
+
+        // Update cache with fetched place IDs (store for 30 days)
+        Cache::put($cacheKey, $updatedPlaceIds, 2592000);
     }
 
     /**
      * Search for nearby places using Google Places Nearby Search API
+     * Limits to 3 pages (60 results max) to avoid excessive API calls
      */
     private function searchNearbyPlaces(float $lat, float $lng): array
     {
         $allResults = [];
         $nextPageToken = null;
-        $maxPages = null; // No limit - fetch all pages
+        $maxPages = 3; // Limit to 3 pages (60 results) - enough for pagination
 
         do {
             $url = "https://maps.googleapis.com/maps/api/place/nearbysearch/json";
@@ -122,12 +160,10 @@ class GooglePlacesService
                     break;
                 }
 
-                // Continue fetching if there are more pages
-                if ($maxPages !== null) {
-                    $maxPages--;
-                    if ($maxPages <= 0) {
-                        break;
-                    }
+                // Limit pages
+                $maxPages--;
+                if ($maxPages <= 0) {
+                    break;
                 }
 
             } catch (\Exception $e) {

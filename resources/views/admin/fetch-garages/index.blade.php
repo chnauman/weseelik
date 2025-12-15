@@ -128,6 +128,7 @@ $(document).ready(function() {
     let isFetching = false;
     let statusPollInterval = null;
     let currentJobId = null;
+    let displayedGarageIds = new Set();
 
     $('#fetchGaragesForm').on('submit', function(e) {
         e.preventDefault();
@@ -145,10 +146,13 @@ $(document).ready(function() {
         // Reset UI
         $('#errorContainer').hide();
         $('#resultContainer').hide();
-        $('#garagesContainer').hide();
         $('#garagesGrid').empty();
+        $('#garagesContainer').show(); // Show container immediately for real-time updates
         $('#fetchBtn').prop('disabled', true).html('<i class="fa fa-spinner fa-spin"></i> Fetching...');
         isFetching = true;
+        
+        // Track displayed garage IDs to avoid duplicates
+        displayedGarageIds = new Set();
 
         // Start fetching - dispatch job
         $.ajax({
@@ -185,10 +189,10 @@ $(document).ready(function() {
             clearInterval(statusPollInterval);
         }
 
-        // Poll every 2 seconds
+        // Poll every 1 second for real-time updates
         statusPollInterval = setInterval(function() {
             checkJobStatus(jobId);
-        }, 2000);
+        }, 1000);
 
         // Initial check
         checkJobStatus(jobId);
@@ -207,16 +211,18 @@ $(document).ready(function() {
                     const stats = response.stats || {};
 
                     if (status === 'processing') {
-                        // Still processing, continue polling
-                        // Don't show anything to user while processing
+                        // Still processing - show garages in real-time
+                        const garages = response.garages || [];
+                        displayNewGarages(garages);
                     } else if (status === 'completed') {
-                        // Job completed - show result
+                        // Job completed - show final result
                         clearInterval(statusPollInterval);
                         statusPollInterval = null;
                         
                         const newCount = stats.new || 0;
                         const garages = response.garages || [];
-                        showResult(newCount, garages);
+                        displayNewGarages(garages); // Display any remaining garages
+                        showResult(newCount);
                         stopFetching();
                     } else if (status === 'failed') {
                         // Job failed
@@ -241,17 +247,19 @@ $(document).ready(function() {
         });
     }
 
-    function showResult(newCount, garages) {
+    function displayNewGarages(garages) {
+        // Display only new garages that haven't been shown yet
+        garages.forEach(function(garage) {
+            if (!displayedGarageIds.has(garage.id)) {
+                addGarageCard(garage);
+                displayedGarageIds.add(garage.id);
+            }
+        });
+    }
+
+    function showResult(newCount) {
         $('#resultMessage').text(`Successfully fetched ${newCount} new garage(s).`);
         $('#resultContainer').show();
-        
-        // Display garage cards
-        if (garages.length > 0) {
-            garages.forEach(function(garage) {
-                addGarageCard(garage);
-            });
-            $('#garagesContainer').show();
-        }
     }
 
     function addGarageCard(garage) {
@@ -300,6 +308,7 @@ $(document).ready(function() {
     function stopFetching() {
         isFetching = false;
         currentJobId = null;
+        displayedGarageIds.clear(); // Reset displayed IDs for next fetch
         if (statusPollInterval) {
             clearInterval(statusPollInterval);
             statusPollInterval = null;
