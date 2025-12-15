@@ -112,6 +112,11 @@
             <div id="garagesGrid" class="row">
                 <!-- Garage cards will be appended here -->
             </div>
+            <div class="text-center mt-4" id="fetchMoreContainer" style="display: none;">
+                <button type="button" class="btn btn-primary btn-lg" id="fetchMoreBtn">
+                    <i class="fa fa-plus"></i> Fetch More
+                </button>
+            </div>
         </div>
 
         <div id="errorContainer" class="alert alert-danger mt-4" style="display: none;">
@@ -129,6 +134,21 @@ $(document).ready(function() {
     let statusPollInterval = null;
     let currentJobId = null;
     let displayedGarageIds = new Set();
+    let currentArea = null;
+
+    // Handle area selection change - clear grid if new area selected
+    $('#area').on('change', function() {
+        const selectedArea = $(this).val();
+        const currentGridArea = $('#garagesGrid').data('current-area');
+        
+        // If a different area is selected, clear the grid
+        if (selectedArea && selectedArea !== currentGridArea) {
+            $('#garagesGrid').empty();
+            displayedGarageIds.clear();
+            $('#fetchMoreContainer').hide();
+            $('#resultContainer').hide();
+        }
+    });
 
     $('#fetchGaragesForm').on('submit', function(e) {
         e.preventDefault();
@@ -143,16 +163,26 @@ $(document).ready(function() {
             return;
         }
 
-        // Reset UI
+        // Store current area for "Fetch More" functionality
+        currentArea = area;
+
+        // Reset UI (but keep existing garages if fetching more for same area)
         $('#errorContainer').hide();
         $('#resultContainer').hide();
-        $('#garagesGrid').empty();
+        $('#fetchMoreContainer').hide();
+        
+        // Only clear grid if it's a new area selection
+        const currentGridArea = $('#garagesGrid').data('current-area');
+        if (!currentGridArea || currentGridArea !== area) {
+            $('#garagesGrid').empty();
+            displayedGarageIds.clear();
+        }
+        
+        $('#garagesGrid').data('current-area', area);
         $('#garagesContainer').show(); // Show container immediately for real-time updates
         $('#fetchBtn').prop('disabled', true).html('<i class="fa fa-spinner fa-spin"></i> Fetching...');
+        $('#fetchMoreBtn').prop('disabled', true);
         isFetching = true;
-        
-        // Track displayed garage IDs to avoid duplicates
-        displayedGarageIds = new Set();
 
         // Start fetching - dispatch job
         $.ajax({
@@ -223,6 +253,9 @@ $(document).ready(function() {
                         const garages = response.garages || [];
                         displayNewGarages(garages); // Display any remaining garages
                         showResult(newCount);
+                        
+                        // Show "Fetch More" button
+                        $('#fetchMoreContainer').show();
                         stopFetching();
                     } else if (status === 'failed') {
                         // Job failed
@@ -308,13 +341,27 @@ $(document).ready(function() {
     function stopFetching() {
         isFetching = false;
         currentJobId = null;
-        displayedGarageIds.clear(); // Reset displayed IDs for next fetch
+        // Don't clear displayedGarageIds - keep them for "Fetch More"
         if (statusPollInterval) {
             clearInterval(statusPollInterval);
             statusPollInterval = null;
         }
         $('#fetchBtn').prop('disabled', false).html('<i class="fa fa-search"></i> Fetch Garages');
+        $('#fetchMoreBtn').prop('disabled', false);
     }
+
+    // Handle "Fetch More" button click
+    $('#fetchMoreBtn').on('click', function() {
+        if (isFetching || !currentArea) {
+            return;
+        }
+
+        // Set the area dropdown to current area
+        $('#area').val(currentArea);
+
+        // Trigger the form submit to fetch more
+        $('#fetchGaragesForm').submit();
+    });
 });
 </script>
 </body>

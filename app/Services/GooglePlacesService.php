@@ -26,10 +26,10 @@ class GooglePlacesService
      * @param float $lat
      * @param float $lng
      * @param callable|null $callback Called for each garage processed: callback($garage, $status)
-     * @param int $limit Maximum number of new garages to fetch (default: 50)
+     * @param int $limit Maximum number of new garages to fetch (default: 5)
      * @return void
      */
-    public function fetchAndStoreGarages(string $area, float $lat, float $lng, ?callable $callback = null, int $limit = 50): void
+    public function fetchAndStoreGarages(string $area, float $lat, float $lng, ?callable $callback = null, int $limit = 5): void
     {
         // Get already fetched place IDs for this area from cache
         $cacheKey = "fetched_place_ids_{$area}";
