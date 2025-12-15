@@ -56,18 +56,12 @@ class ChatController extends Controller
         // Get stored search state if this is a "more" request
         $searchState = null;
         if ($isMoreRequest) {
-            $cacheKey = 'garage_search_state_' . $conversation->id;
-            $searchState = Cache::get($cacheKey);
-            
-            // If "more" requested but no stored state, it's not a valid "more" request
-            // Let the AI handle it as a new search
+            $searchState = $this->getSearchState($conversation->id);
             if (!$searchState) {
                 $isMoreRequest = false;
             }
         } else {
-            // Clear search state for new searches (not "more" requests)
-            $cacheKey = 'garage_search_state_' . $conversation->id;
-            Cache::forget($cacheKey);
+            $this->clearSearchState($conversation->id);
         }
 
         // Save user message
@@ -80,29 +74,11 @@ class ChatController extends Controller
             'created_at' => now(),
         ]);
 
-        $tags = DB::table('tags')
-            ->whereNull('deleted_at')
-            ->select(DB::raw('COALESCE(english_title, title) as display_title'))
-            ->pluck('display_title')
-            ->implode(', ');
-
-        $specializations = DB::table('specializations')
-            ->whereNull('deleted_at')
-            ->select(DB::raw('COALESCE(english_title, title) as display_title'))
-            ->pluck('display_title')
-            ->implode(', ');
-
-        $services = DB::table('services')
-            ->whereNull('deleted_at')
-            ->select(DB::raw('COALESCE(english_title, title) as display_title'))
-            ->pluck('display_title')
-            ->implode(', ');
-
-        $categories = DB::table('categories')
-            ->whereNull('deleted_at')
-            ->select(DB::raw('COALESCE(english_title, title) as display_title'))
-            ->pluck('display_title')
-            ->implode(', ');
+        // Get available tags, services, specializations, and categories
+        $tags = $this->getDisplayTitles('tags');
+        $specializations = $this->getDisplayTitles('specializations');
+        $services = $this->getDisplayTitles('services');
+        $categories = $this->getDisplayTitles('categories');
 
         // Get unique areas from database (cached) - show all areas for intelligent matching
         $uniqueAreas = $this->getUniqueAreas();
@@ -154,17 +130,25 @@ class ChatController extends Controller
                 - User: \"hawalli\" → Match to \"hawalli\", \"hawalli industrial\", or \"hawalli residential\" (whichever exists)
                 - User: \"kuwait city\" → Match to \"kuwait city\" or similar variation in list
 
+                QUESTION FLOW - CRITICAL ORDER (for garage searches):
+                You MUST follow this exact order when gathering information:
+                1. LOCATION (REQUIRED) - Always ask for location first if not provided. Use smart area matching from the available areas list above.
+                2. SERVICE/NEED (Optional but recommended) - Ask what service they need (e.g., AC repair, oil change, tire change). If user says \"all services\", \"any service\", \"everything\", or similar, proceed without filtering by service.
+                3. VEHICLE DETAILS (Optional) - Ask for vehicle brand, model, year. If user says \"any vehicle\", \"all vehicles\", \"any car\", or similar, proceed without vehicle filters.
+                
+                IMPORTANT RULES:
+                - Location is ALWAYS REQUIRED for findGarage. Never call findGarage without a location.
+                - Never ask for obvious information (e.g., if user says 'in Salmiya', don't ask 'Where are you located?').
+                - If user provides location in their message, use it immediately and move to next question.
+                - If user says \"all services\", \"any service\", \"any vehicle\", \"all vehicles\" - treat these as optional filters and search for ALL garages in the location.
+                - Once you have location, you can call findGarage. Other filters (service, vehicle details) are optional but helpful.
+                - Gather information naturally, one question at a time. Don't ask multiple questions at once.
+                
                 When the user describes a problem (e.g., 'my car's AC is not cooling'), intelligently map it to relevant tags, services, specializations, or categories, and pass them in the function call as arrays:
                 - 'selected_tags': inferred issue tags
                 - 'selected_specializations': relevant expertise or brand specialization
                 - 'selected_services': relevant garage services
                 - 'selected_categories': relevant garage category
-
-                Rules:
-                - Use whatever details are available from the user or chat history.
-                - Never ask for all parameters at once. Gather naturally, one by one.
-                - Never ask for obvious info (e.g., if the user says 'in Salmiya', don't ask 'Where are you located?').
-                - Once enough info is available, call the function automatically and politely confirm.
                 
                 FUNCTION SELECTION - CRITICAL RULES:
                 - CRITICAL: You MUST use findExternalService (NOT findGarage) for the following services: petrol stations, gas stations, fuel stations, ATMs, restaurants, cafes, hotels, shopping malls, shopping centers, hospitals, clinics, pharmacies, parking lots, car rentals, car insurance companies, gyms, supermarkets, grocery stores, banks, or ANY other business/service that is NOT a garage/automotive repair shop. These services are NEVER in the garage database, so you MUST use findExternalService immediately when users ask for them.
@@ -175,12 +159,13 @@ class ChatController extends Controller
                   * \"restaurant in Kuwait City\" → MUST use findExternalService (NOT findGarage)
                   * \"car AC repair in Hawalli\" → use findGarage (this is a garage service)
                   * \"mechanic for Toyota\" → use findGarage (this is a garage service)
-                - Always ask for the location/area if it's missing when using findExternalService.
+                - For findExternalService: Location is ALWAYS REQUIRED. Always ask for location first if user doesn't provide it.
                 - The findExternalService function works ONLY for location-based services in Kuwait region - use it ONLY when a user asks for finding a specific location or business.
                 
                 RESPONSE FORMATTING:
                 - CRITICAL: When garage results are found (via findGarage, listGarages, or getGarageDetails), your response MUST be EXTREMELY MINIMAL. DO NOT list any garage names, addresses, phone numbers, or any garage details in your message. DO NOT format garages as numbered lists. DO NOT include any garage information in your response. Simply say something brief like 'Here are the garages I found in [location]:' or 'Found these garages for you:' and STOP. The garage details are provided separately in a structured format, so you must NEVER include them in your message text. If you see garage results in the tool response, acknowledge with ONLY a brief confirmation sentence - nothing more.
                 - PAGINATION: If the user asks for more garages (e.g., 'show more', 'next', 'more garages', 'load more', 'I need more options'), you MUST call the findGarage function again with the EXACT SAME parameters from the previous search. The system will automatically exclude already-shown garages and return the next batch. When showing more results, keep your response minimal as above.
+                - NO RESULTS HANDLING: If no garages are found matching the user's criteria, politely inform them and ask if they would like to search in a different area. Example: \"I couldn't find any garages matching your criteria in [location]. Would you like to search in a different area?\"
                 - When displaying results from findExternalService, format them as a numbered list in this exact format (blank line after business name):
                   1. [Business Name](google_maps_url) - Make the business name clickable as a link that opens Google Maps
                   Address: Street name, Area
@@ -205,55 +190,56 @@ class ChatController extends Controller
                 'type' => 'function',
                 'function' => [
                     'name' => 'findGarage',
-                    'description' => 'Find a garage based on the user’s provided details, filters, and preferences.',
+                    'description' => 'Find a garage based on the user\'s provided details, filters, and preferences. Location is REQUIRED. Other filters (service, vehicle details) are optional.',
                     'parameters' => [
                         'type' => 'object',
                         'properties' => [
                             'location' => [
                                 'type' => 'string',
-                                'description' => 'The location or area name where the user wants to find a garage. CRITICAL: You MUST intelligently match the user\'s location to one of the available areas listed in the system prompt. Handle spelling variations (e.g., "shuaikh" → "shuwaikh industrial"), partial matches, and area suffixes. Always use the EXACT area name from the available areas list when a match is found. Only use the user\'s exact wording if no match exists in the available areas list.'
+                                'description' => 'REQUIRED: The location or area name where the user wants to find a garage. CRITICAL: You MUST intelligently match the user\'s location to one of the available areas listed in the system prompt. Handle spelling variations (e.g., "shuaikh" → "shuwaikh industrial"), partial matches, and area suffixes. Always use the EXACT area name from the available areas list when a match is found. Only use the user\'s exact wording if no match exists in the available areas list. Never call this function without a location.'
                             ],
                             'vehicle_brand' => [
                                 'type' => 'string',
-                                'description' => 'Brand of the vehicle, e.g., Toyota, Honda, Nissan, etc.'
+                                'description' => 'Optional: Brand of the vehicle, e.g., Toyota, Honda, Nissan, etc. If user says "any", "all", or doesn\'t specify, omit this parameter.'
                             ],
                             'vehicle_model' => [
                                 'type' => 'string',
-                                'description' => 'Model of the vehicle.'
+                                'description' => 'Optional: Model of the vehicle. If user says "any", "all", or doesn\'t specify, omit this parameter.'
                             ],
                             'vehicle_year' => [
                                 'type' => 'string',
-                                'description' => 'Manufacturing year of the vehicle.'
+                                'description' => 'Optional: Manufacturing year of the vehicle. If user says "any", "all", or doesn\'t specify, omit this parameter.'
                             ],
                             'selected_tags' => [
                                 'type' => 'array',
                                 'items' => [
                                     'type' => 'string'
                                 ],
-                                'description' => 'Tags inferred from the user’s problem or request (e.g., "oil change", "flat tire").'
+                                'description' => 'Optional: Tags inferred from the user's problem or request (e.g., "oil change", "flat tire"). If user says "all services" or "any service", omit this parameter.'
                             ],
                             'selected_specializations' => [
                                 'type' => 'array',
                                 'items' => [
                                     'type' => 'string'
                                 ],
-                                'description' => 'Specific vehicle or service specializations relevant to the user’s need.'
+                                'description' => 'Optional: Specific vehicle or service specializations relevant to the user's need. If user says "any" or "all", omit this parameter.'
                             ],
                             'selected_services' => [
                                 'type' => 'array',
                                 'items' => [
                                     'type' => 'string'
                                 ],
-                                'description' => 'Specific garage services (e.g., AC repair, engine tuning, car wash).'
+                                'description' => 'Optional: Specific garage services (e.g., AC repair, engine tuning, car wash). If user says "all services", "any service", or "everything", omit this parameter to show all garages in the location.'
                             ],
                             'selected_categories' => [
                                 'type' => 'array',
                                 'items' => [
                                     'type' => 'string'
                                 ],
-                                'description' => 'Garage business categories, such as "mechanic", "electrician", or "tire shop".'
+                                'description' => 'Optional: Garage business categories, such as "mechanic", "electrician", or "tire shop". If user says "any" or "all", omit this parameter.'
                             ],
                         ],
+                        'required' => ['location'],
                     ],
                 ],
             ],
@@ -336,7 +322,7 @@ class ChatController extends Controller
                 'type' => 'function',
                 'function' => [
                     'name' => 'findExternalService',
-                    'description' => 'Find location-based services and businesses in Kuwait ONLY. CRITICAL: Use this function (NOT findGarage) when users ask for: petrol stations, gas stations, fuel stations, ATMs, restaurants, cafes, hotels, shopping malls, hospitals, clinics, pharmacies, parking lots, car rentals, car insurance companies, gyms, supermarkets, banks, or ANY business/service that is NOT a garage/automotive repair shop. These services are NEVER in the garage database. DO NOT use findGarage for these queries. DO NOT use this function for non-location queries like jokes, general knowledge, weather, news, or any conversation that is not about finding a location in Kuwait.',
+                    'description' => 'Find location-based services and businesses in Kuwait ONLY. CRITICAL: Use this function (NOT findGarage) when users ask for: petrol stations, gas stations, fuel stations, ATMs, restaurants, cafes, hotels, shopping malls, hospitals, clinics, pharmacies, parking lots, car rentals, car insurance companies, gyms, supermarkets, banks, or ANY business/service that is NOT a garage/automotive repair shop. These services are NEVER in the garage database. DO NOT use findGarage for these queries. DO NOT use this function for non-location queries like jokes, general knowledge, weather, news, or any conversation that is not about finding a location in Kuwait. ALWAYS ask for location first if user doesn\'t provide it.',
                     'parameters' => [
                         'type' => 'object',
                         'properties' => [
@@ -346,7 +332,7 @@ class ChatController extends Controller
                             ],
                             'location' => [
                                 'type' => 'string',
-                                'description' => 'The area or location in Kuwait where the user wants to find the service (e.g., "Salmiya", "Kuwait City", "Hawalli"). If not provided by user, ask for it.'
+                                'description' => 'REQUIRED: The area or location in Kuwait where the user wants to find the service (e.g., "Salmiya", "Kuwait City", "Hawalli"). Always ask for location first if user doesn\'t provide it. Never call this function without a location.'
                             ],
                         ],
                         'required' => ['service_type', 'location'],
@@ -404,137 +390,27 @@ class ChatController extends Controller
                 }, $toolCalls),
             ];
 
-            foreach ($toolCalls as $tc) {
-                $toolName = $tc->function->name ?? '';
-                $argsJson = $tc->function->arguments ?? '{}';
-                $args = json_decode($argsJson, true);
-                if (!is_array($args)) {
-                    $args = [];
-                }
-
-                // If this is a "more" request and we have stored state, validate and use stored params
-                if ($isMoreRequest && $searchState && $toolName === 'findGarage') {
-                    // Validate that the search params match (to avoid using wrong cached results)
-                    $cachedParams = $searchState['search_params'] ?? [];
-                    $currentParams = $args;
-                    
-                    // Normalize for comparison (ignore null/empty differences)
-                    $normalizeParams = function($params) {
-                        $normalized = [];
-                        foreach ($params as $key => $value) {
-                            if (is_array($value)) {
-                                $normalized[$key] = array_filter(array_map('trim', $value));
-                                sort($normalized[$key]);
-                            } else {
-                                $normalized[$key] = trim($value ?? '');
-                            }
-                        }
-                        return $normalized;
-                    };
-                    
-                    $cachedNormalized = $normalizeParams($cachedParams);
-                    $currentNormalized = $normalizeParams($currentParams);
-                    
-                    // If params match, use cached params; otherwise treat as new search
-                    if ($cachedNormalized == $currentNormalized) {
-                        $args = $searchState['search_params'];
-                        Log::info('Using cached search params for "more" request', ['params' => $args]);
-                    } else {
-                        // Params don't match - this is actually a new search, not a "more" request
-                        Log::info('Search params changed - treating as new search instead of "more"', [
-                            'cached' => $cachedParams,
-                            'current' => $currentParams
-                        ]);
-                        $isMoreRequest = false;
-                        $searchState = null;
-                        // Clear the cache for this conversation
-                        $cacheKey = 'garage_search_state_' . $conversation->id;
-                        Cache::forget($cacheKey);
-                    }
-                }
-                
-                $result = $this->dispatchTool($toolName, $args, $isMoreRequest ? $searchState : null);
-
-                // Track external service results
-                if ($toolName === 'findExternalService' && is_array($result)) {
-                    if (isset($result['status']) && $result['status'] === 'success' && !empty($result['results'])) {
-                        $hasExternalServiceResults = true;
-                    }
-                }
-                
-                // Extract garage data from garage-related tool results
-                if (in_array($toolName, ['findGarage', 'listGarages', 'getGarageDetails']) && is_array($result)) {
-                    // Handle "no_more_results" status - clear search state
-                    if (isset($result['status']) && $result['status'] === 'no_more_results') {
-                        $cacheKey = 'garage_search_state_' . $conversation->id;
-                        Cache::forget($cacheKey);
-                        $noMoreResults = true;
-                        // Message will be set at the end based on noMoreResults flag
-                    } else {
-                        $extractedGarages = $this->extractGarageDataFromToolResult($result, $toolName);
-                        if (!empty($extractedGarages)) {
-                            $garagesData = array_merge($garagesData, $extractedGarages);
-                            
-                            // Store search state for pagination (only for findGarage with success status)
-                            if ($toolName === 'findGarage' && isset($result['status']) && $result['status'] === 'success') {
-                                // If this is a "more" request, update offset in cache
-                                if ($isMoreRequest && $searchState && isset($result['_new_offset'])) {
-                                    $cacheKey = 'garage_search_state_' . $conversation->id;
-                                    $searchState['current_offset'] = $result['_new_offset'];
-                                    Cache::put($cacheKey, $searchState, now()->addHour());
-                                } elseif (!$isMoreRequest && isset($result['_all_garages'])) {
-                                    // New search - store all garages with initial offset (all shown)
-                                    $this->storeSearchState($conversation->id, $args, $result['_all_garages'], $result['_offset'] ?? count($result['_all_garages']));
-                                }
-                            }
-                        }
-                    }
-                }
-
-                // Extract lat/lng from tool results (only if we don't have them yet or if these are valid)
-                if (is_array($result)) {
-                    $tempLat = null;
-                    $tempLng = null;
-                    
-                    // For findGarage, listGarages, findExternalService - extract from first result
-                    if (isset($result['results']) && is_array($result['results']) && !empty($result['results'])) {
-                        $firstResult = $result['results'][0];
-                        if (isset($firstResult['latitude']) && isset($firstResult['longitude'])) {
-                            $latVal = $firstResult['latitude'];
-                            $lngVal = $firstResult['longitude'];
-                            // Check if values are not null and not empty strings
-                            if ($latVal !== null && $latVal !== '' && $lngVal !== null && $lngVal !== '') {
-                                $tempLat = is_numeric($latVal) ? (float)$latVal : $latVal;
-                                $tempLng = is_numeric($lngVal) ? (float)$lngVal : $lngVal;
-                            }
-                        }
-                    }
-                    // For getGarageDetails - extract from result
-                    elseif (isset($result['result']) && is_array($result['result'])) {
-                        if (isset($result['result']['latitude']) && isset($result['result']['longitude'])) {
-                            $latVal = $result['result']['latitude'];
-                            $lngVal = $result['result']['longitude'];
-                            // Check if values are not null and not empty strings
-                            if ($latVal !== null && $latVal !== '' && $lngVal !== null && $lngVal !== '') {
-                                $tempLat = is_numeric($latVal) ? (float)$latVal : $latVal;
-                                $tempLng = is_numeric($lngVal) ? (float)$lngVal : $lngVal;
-                            }
-                        }
-                    }
-                    
-                    // Only update if we found valid coordinates
-                    if ($tempLat !== null && $tempLng !== null) {
-                        $latitude = $tempLat;
-                        $longitude = $tempLng;
-                    }
-                }
-
-                $history[] = [
-                    'role' => 'tool',
-                    'tool_call_id' => $tc->id ?? '',
-                    'content' => is_string($result) ? $result : json_encode($result),
-                ];
-            }
+            // Process tool calls
+            $processResult = $this->processToolCalls(
+                $toolCalls,
+                $history,
+                $conversation->id,
+                $isMoreRequest,
+                $searchState,
+                $garagesData,
+                $hasExternalServiceResults,
+                $noMoreResults,
+                $latitude,
+                $longitude
+            );
+            
+            $history = $processResult['history'];
+            $garagesData = $processResult['garagesData'];
+            $hasExternalServiceResults = $processResult['hasExternalServiceResults'];
+            $noMoreResults = $processResult['noMoreResults'];
+            $latitude = $processResult['latitude'];
+            $longitude = $processResult['longitude'];
+            $tokensUsed += $processResult['tokensUsed'];
 
             // Follow-up call to get the final assistant answer
             $second = OpenAI::chat()->create([
@@ -548,113 +424,34 @@ class ChatController extends Controller
             $assistantText = $second->choices[0]->message->content ?? '';
             $tokensUsed += $second->usage->totalTokens ?? 0;
             
-            // If no more results, use the message from the tool result
-            if ($noMoreResults && empty($garagesData)) {
-                // Message already set from tool result
-            } elseif (!empty($garagesData)) {
-                // If garages were found, ensure the message is minimal
-                $assistantText = $this->ensureMinimalGarageMessage($assistantText, $garagesData);
-            }
+            // Update message based on results
+            $assistantText = $this->updateAssistantMessage($assistantText, $noMoreResults, $garagesData);
             
             // Check if second response also has tool calls (unlikely but possible)
             $secondToolCalls = $second->choices[0]->message->toolCalls
                 ?? ($second->choices[0]->message->tool_calls ?? []);
             
             if (!empty($secondToolCalls)) {
-                foreach ($secondToolCalls as $tc) {
-                    $toolName = $tc->function->name ?? '';
-                    $argsJson = $tc->function->arguments ?? '{}';
-                    $args = json_decode($argsJson, true);
-                    if (!is_array($args)) {
-                        $args = [];
-                    }
-
-                    // If this is a "more" request and we have stored state, use stored params
-                    if ($isMoreRequest && $searchState && $toolName === 'findGarage') {
-                        $args = $searchState['search_params'];
-                    }
-                    
-                    $result = $this->dispatchTool($toolName, $args, $isMoreRequest ? $searchState : null);
-
-                    // Track external service results
-                    if ($toolName === 'findExternalService' && is_array($result)) {
-                        if (isset($result['status']) && $result['status'] === 'success' && !empty($result['results'])) {
-                            $hasExternalServiceResults = true;
-                        }
-                    }
-
-                    // Extract garage data from garage-related tool results
-                    if (in_array($toolName, ['findGarage', 'listGarages', 'getGarageDetails']) && is_array($result)) {
-                        // Handle "no_more_results" status - clear search state
-                        if (isset($result['status']) && $result['status'] === 'no_more_results') {
-                            $cacheKey = 'garage_search_state_' . $conversation->id;
-                            Cache::forget($cacheKey);
-                            $noMoreResults = true;
-                            // Message will be set at the end based on noMoreResults flag
-                        } else {
-                            $extractedGarages = $this->extractGarageDataFromToolResult($result, $toolName);
-                            if (!empty($extractedGarages)) {
-                                $garagesData = array_merge($garagesData, $extractedGarages);
-                                
-                                // Store search state for pagination (only for findGarage with success status)
-                                if ($toolName === 'findGarage' && isset($result['status']) && $result['status'] === 'success') {
-                                    // If this is a "more" request, update offset in cache
-                                    if ($isMoreRequest && $searchState && isset($result['results'])) {
-                                        $newOffset = ($searchState['current_offset'] ?? 0) + count($result['results']);
-                                        $cacheKey = 'garage_search_state_' . $conversation->id;
-                                        $searchState['current_offset'] = $newOffset;
-                                        Cache::put($cacheKey, $searchState, now()->addHour());
-                                    } elseif (!$isMoreRequest && isset($result['_all_garages'])) {
-                                        // New search - store all garages with initial offset
-                                        $this->storeSearchState($conversation->id, $args, $result['_all_garages'], $result['_offset'] ?? 10);
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    // Extract lat/lng from tool results
-                    if (is_array($result)) {
-                        $tempLat = null;
-                        $tempLng = null;
-                        
-                        // For findGarage, listGarages, findExternalService - extract from first result
-                        if (isset($result['results']) && is_array($result['results']) && !empty($result['results'])) {
-                            $firstResult = $result['results'][0];
-                            if (isset($firstResult['latitude']) && isset($firstResult['longitude'])) {
-                                $latVal = $firstResult['latitude'];
-                                $lngVal = $firstResult['longitude'];
-                                if ($latVal !== null && $latVal !== '' && $lngVal !== null && $lngVal !== '') {
-                                    $tempLat = is_numeric($latVal) ? (float)$latVal : $latVal;
-                                    $tempLng = is_numeric($lngVal) ? (float)$lngVal : $lngVal;
-                                }
-                            }
-                        }
-                        // For getGarageDetails - extract from result
-                        elseif (isset($result['result']) && is_array($result['result'])) {
-                            if (isset($result['result']['latitude']) && isset($result['result']['longitude'])) {
-                                $latVal = $result['result']['latitude'];
-                                $lngVal = $result['result']['longitude'];
-                                if ($latVal !== null && $latVal !== '' && $lngVal !== null && $lngVal !== '') {
-                                    $tempLat = is_numeric($latVal) ? (float)$latVal : $latVal;
-                                    $tempLng = is_numeric($lngVal) ? (float)$lngVal : $lngVal;
-                                }
-                            }
-                        }
-                        
-                        // Only update if we found valid coordinates
-                        if ($tempLat !== null && $tempLng !== null) {
-                            $latitude = $tempLat;
-                            $longitude = $tempLng;
-                        }
-                    }
-
-                    $history[] = [
-                        'role' => 'tool',
-                        'tool_call_id' => $tc->id ?? '',
-                        'content' => is_string($result) ? $result : json_encode($result),
-                    ];
-                }
+                $processResult = $this->processToolCalls(
+                    $secondToolCalls,
+                    $history,
+                    $conversation->id,
+                    $isMoreRequest,
+                    $searchState,
+                    $garagesData,
+                    $hasExternalServiceResults,
+                    $noMoreResults,
+                    $latitude,
+                    $longitude
+                );
+                
+                $history = $processResult['history'];
+                $garagesData = $processResult['garagesData'];
+                $hasExternalServiceResults = $processResult['hasExternalServiceResults'];
+                $noMoreResults = $processResult['noMoreResults'];
+                $latitude = $processResult['latitude'];
+                $longitude = $processResult['longitude'];
+                $tokensUsed += $processResult['tokensUsed'];
                 
                 // If there were tool calls, make one more call to get final response
                 $third = OpenAI::chat()->create([
@@ -668,13 +465,8 @@ class ChatController extends Controller
                 $assistantText = $third->choices[0]->message->content ?? '';
                 $tokensUsed += $third->usage->totalTokens ?? 0;
                 
-                // If no more results, use the message from the tool result
-                if ($noMoreResults && empty($garagesData)) {
-                    // Message already set from tool result
-                } elseif (!empty($garagesData)) {
-                    // If garages were found, ensure the message is minimal
-                    $assistantText = $this->ensureMinimalGarageMessage($assistantText, $garagesData);
-                }
+                // Update message based on results
+                $assistantText = $this->updateAssistantMessage($assistantText, $noMoreResults, $garagesData);
             }
         }
         
@@ -797,7 +589,7 @@ class ChatController extends Controller
 
         return [
             'id' => $garage['id'],
-            'title' => $this->getPreferredValueFromArray($garage['title'] ?? null, $garage['title_ar'] ?? null),
+            'title' => $this->getPreferredValue($garage['title'] ?? null, $garage['title_ar'] ?? null),
             'address' => $garage['address'] ?? null,
             'contact_no' => $garage['contact_no'] ?? null,
             'maps_share_link' => $garage['maps_share_link'] ?? null,
@@ -806,7 +598,7 @@ class ChatController extends Controller
             'city' => $garage['city'] ?? null,
             'rating' => $garage['rating'] ?? null,
             'no_of_visits' => $garage['no_of_visits'] ?? null,
-            'description' => $this->getPreferredValueFromArray($garage['description'] ?? null, $garage['description_ar'] ?? null),
+            'description' => $this->getPreferredValue($garage['description'] ?? null, $garage['description_ar'] ?? null),
             'block' => $garage['block'] ?? null,
             'governate' => $garage['governate'] ?? null,
             'latitude' => $garage['latitude'] ?? null,
@@ -1599,18 +1391,6 @@ class ChatController extends Controller
         return null;
     }
 
-    /**
-     * Get preferred value from array (English first, Arabic fallback)
-     * For array data
-     *
-     * @param string|null $englishValue
-     * @param string|null $arabicValue
-     * @return string|null
-     */
-    private function getPreferredValueFromArray(?string $englishValue, ?string $arabicValue): ?string
-    {
-        return $this->getPreferredValue($englishValue, $arabicValue);
-    }
 
     /**
      * Get unique areas from database (cached)
@@ -2076,46 +1856,10 @@ Return ONLY the JSON object, no additional text or explanation.";
                 }
             }
             
-            // Generate Google Maps URL - prioritize name+address (most reliable), then place_id, then coordinates
+            // Generate Google Maps URL
             $lat = $place['geometry']['location']['lat'] ?? null;
             $lng = $place['geometry']['location']['lng'] ?? null;
-            $googleMapsUrl = null;
-            
-            // Priority 1: Use place name + address (most reliable for opening exact location)
-            if (!empty($name) && $name !== 'Unknown') {
-                $encodedName = urlencode($name);
-                $encodedAddress = '';
-                
-                // Use formatted address if available (most accurate)
-                if (!empty($address) && trim($address) !== '') {
-                    $encodedAddress = urlencode($address);
-                }
-                
-                if ($encodedAddress) {
-                    // Use name + address for precise search (this is the most accurate format)
-                    $googleMapsUrl = "https://www.google.com/maps/search/?api=1&query={$encodedName},{$encodedAddress}";
-                } else {
-                    // Just use name with Kuwait if no address available
-                    $googleMapsUrl = "https://www.google.com/maps/search/?api=1&query={$encodedName},Kuwait";
-                }
-            }
-            // Priority 2: Use place_id with name (alternative format) - more accurate than coordinates
-            if (empty($googleMapsUrl) && !empty($placeId) && !empty($name) && $name !== 'Unknown') {
-                $encodedPlaceId = urlencode($placeId);
-                $encodedName = urlencode($name);
-                // Try format with both query and query_place_id (very accurate)
-                $googleMapsUrl = "https://www.google.com/maps/search/?api=1&query={$encodedName}&query_place_id={$encodedPlaceId}";
-            }
-            // Priority 2b: Alternative place_id format (direct place URL) - still accurate
-            if (empty($googleMapsUrl) && !empty($placeId)) {
-                $encodedPlaceId = urlencode($placeId);
-                // Direct place format
-                $googleMapsUrl = "https://www.google.com/maps/place/?q=place_id:{$encodedPlaceId}";
-            }
-            // Priority 3: Fallback to coordinates if nothing else available (least accurate)
-            if (empty($googleMapsUrl) && !empty($lat) && !empty($lng)) {
-                $googleMapsUrl = "https://www.google.com/maps/search/?api=1&query={$lat},{$lng}";
-            }
+            $googleMapsUrl = $this->generateGoogleMapsUrl($name, $address, $placeId, $lat, $lng);
             
             $formatted[] = [
                 'name' => $name,
@@ -2260,40 +2004,11 @@ Return ONLY the JSON object, no additional text or explanation.";
                         }
                     }
                     
-                    // Generate Google Maps URL for this location - prioritize name+address (most reliable), then coordinates
-                    $googleMapsUrl = null;
-                    
-                    // Priority 1: Use place name + address (most reliable for opening exact location)
-                    if (!empty($name) && $name !== 'Unknown') {
-                        $encodedName = urlencode($name);
-                        $encodedAddress = '';
-                        
-                        // Build full address with location and Kuwait
-                        if (!empty($address) && $address !== 'Address not available') {
-                            $fullAddress = $address . ', ' . $location . ', Kuwait';
-                            $encodedAddress = urlencode($fullAddress);
-                        } else {
-                            $encodedAddress = urlencode($location . ', Kuwait');
-                        }
-                        
-                        if ($encodedAddress) {
-                            // Use name + address for precise search
-                            $googleMapsUrl = "https://www.google.com/maps/search/?api=1&query={$encodedName},{$encodedAddress}";
-                        } else {
-                            // Just use name with Kuwait if no address available
-                            $googleMapsUrl = "https://www.google.com/maps/search/?api=1&query={$encodedName},Kuwait";
-                        }
-                    }
-                    // Priority 2: Fallback to address only if no name
-                    if (empty($googleMapsUrl) && !empty($address) && $address !== 'Address not available') {
-                        $fullAddress = $address . ', ' . $location . ', Kuwait';
-                        $mapsQuery = urlencode($fullAddress);
-                        $googleMapsUrl = "https://www.google.com/maps/search/?api=1&query=" . $mapsQuery;
-                    }
-                    // Priority 3: Fallback to coordinates if nothing else available
-                    if (empty($googleMapsUrl) && !empty($lat) && !empty($lng)) {
-                        $googleMapsUrl = "https://www.google.com/maps/search/?api=1&query={$lat},{$lng}";
-                    }
+                    // Generate Google Maps URL
+                    $fullAddress = (!empty($address) && $address !== 'Address not available') 
+                        ? $address . ', ' . $location . ', Kuwait' 
+                        : $location . ', Kuwait';
+                    $googleMapsUrl = $this->generateGoogleMapsUrl($name, $fullAddress, null, $lat, $lng);
                     
                     $formattedResults[] = [
                         'name' => $name,
@@ -2329,5 +2044,281 @@ Return ONLY the JSON object, no additional text or explanation.";
                 'error' => $e->getMessage(),
             ];
         }
+    }
+
+    /**
+     * Get display titles from a table (tags, services, specializations, categories)
+     */
+    private function getDisplayTitles(string $table): string
+    {
+        return DB::table($table)
+            ->whereNull('deleted_at')
+            ->select(DB::raw('COALESCE(english_title, title) as display_title'))
+            ->pluck('display_title')
+            ->implode(', ');
+    }
+
+    /**
+     * Get search state from cache
+     */
+    private function getSearchState(int $conversationId): ?array
+    {
+        return Cache::get('garage_search_state_' . $conversationId);
+    }
+
+    /**
+     * Clear search state from cache
+     */
+    private function clearSearchState(int $conversationId): void
+    {
+        Cache::forget('garage_search_state_' . $conversationId);
+    }
+
+    /**
+     * Process tool calls and extract data
+     */
+    private function processToolCalls(
+        array $toolCalls,
+        array &$history,
+        int $conversationId,
+        bool &$isMoreRequest,
+        ?array &$searchState,
+        array &$garagesData,
+        bool &$hasExternalServiceResults,
+        bool &$noMoreResults,
+        ?float &$latitude,
+        ?float &$longitude
+    ): array {
+        $tokensUsed = 0;
+
+        foreach ($toolCalls as $tc) {
+            $toolName = $tc->function->name ?? '';
+            $argsJson = $tc->function->arguments ?? '{}';
+            $args = json_decode($argsJson, true);
+            if (!is_array($args)) {
+                $args = [];
+            }
+
+            // Handle "more" request validation for findGarage
+            if ($isMoreRequest && $searchState && $toolName === 'findGarage') {
+                $validationResult = $this->validateMoreRequest($args, $searchState, $conversationId);
+                if ($validationResult['isValid']) {
+                    $args = $searchState['search_params'];
+                } else {
+                    $isMoreRequest = false;
+                    $searchState = null;
+                    $this->clearSearchState($conversationId);
+                }
+            }
+            
+            $result = $this->dispatchTool($toolName, $args, $isMoreRequest ? $searchState : null);
+
+            // Track external service results
+            if ($toolName === 'findExternalService' && is_array($result)) {
+                if (isset($result['status']) && $result['status'] === 'success' && !empty($result['results'])) {
+                    $hasExternalServiceResults = true;
+                }
+            }
+            
+            // Extract garage data and handle pagination
+            if (in_array($toolName, ['findGarage', 'listGarages', 'getGarageDetails']) && is_array($result)) {
+                if (isset($result['status']) && $result['status'] === 'no_more_results') {
+                    $this->clearSearchState($conversationId);
+                    $noMoreResults = true;
+                } else {
+                    $extractedGarages = $this->extractGarageDataFromToolResult($result, $toolName);
+                    if (!empty($extractedGarages)) {
+                        $garagesData = array_merge($garagesData, $extractedGarages);
+                        
+                        // Store search state for pagination
+                        if ($toolName === 'findGarage' && isset($result['status']) && $result['status'] === 'success') {
+                            $this->handleSearchStatePagination(
+                                $conversationId,
+                                $args,
+                                $result,
+                                $isMoreRequest,
+                                $searchState
+                            );
+                        }
+                    }
+                }
+            }
+
+            // Extract coordinates
+            $coords = $this->extractCoordinates($result);
+            if ($coords['lat'] !== null && $coords['lng'] !== null) {
+                $latitude = $coords['lat'];
+                $longitude = $coords['lng'];
+            }
+
+            $history[] = [
+                'role' => 'tool',
+                'tool_call_id' => $tc->id ?? '',
+                'content' => is_string($result) ? $result : json_encode($result),
+            ];
+        }
+
+        return [
+            'history' => $history,
+            'garagesData' => $garagesData,
+            'hasExternalServiceResults' => $hasExternalServiceResults,
+            'noMoreResults' => $noMoreResults,
+            'latitude' => $latitude,
+            'longitude' => $longitude,
+            'tokensUsed' => $tokensUsed,
+        ];
+    }
+
+    /**
+     * Validate "more" request parameters
+     */
+    private function validateMoreRequest(array $currentParams, array $searchState, int $conversationId): array
+    {
+        $cachedParams = $searchState['search_params'] ?? [];
+        
+        $normalizeParams = function($params) {
+            $normalized = [];
+            foreach ($params as $key => $value) {
+                if (is_array($value)) {
+                    $normalized[$key] = array_filter(array_map('trim', $value));
+                    sort($normalized[$key]);
+                } else {
+                    $normalized[$key] = trim($value ?? '');
+                }
+            }
+            return $normalized;
+        };
+        
+        $cachedNormalized = $normalizeParams($cachedParams);
+        $currentNormalized = $normalizeParams($currentParams);
+        
+        if ($cachedNormalized == $currentNormalized) {
+            Log::info('Using cached search params for "more" request', ['params' => $cachedParams]);
+            return ['isValid' => true];
+        }
+        
+        Log::info('Search params changed - treating as new search instead of "more"', [
+            'cached' => $cachedParams,
+            'current' => $currentParams
+        ]);
+        return ['isValid' => false];
+    }
+
+    /**
+     * Handle search state pagination
+     */
+    private function handleSearchStatePagination(
+        int $conversationId,
+        array $args,
+        array $result,
+        bool $isMoreRequest,
+        ?array &$searchState
+    ): void {
+        if ($isMoreRequest && $searchState) {
+            if (isset($result['_new_offset'])) {
+                $searchState['current_offset'] = $result['_new_offset'];
+            } elseif (isset($result['results'])) {
+                $newOffset = ($searchState['current_offset'] ?? 0) + count($result['results']);
+                $searchState['current_offset'] = $newOffset;
+            }
+            Cache::put('garage_search_state_' . $conversationId, $searchState, now()->addHour());
+        } elseif (!$isMoreRequest && isset($result['_all_garages'])) {
+            $offset = $result['_offset'] ?? count($result['_all_garages']);
+            $this->storeSearchState($conversationId, $args, $result['_all_garages'], $offset);
+        }
+    }
+
+    /**
+     * Extract coordinates from tool result
+     */
+    private function extractCoordinates($result): array
+    {
+        $lat = null;
+        $lng = null;
+
+        if (!is_array($result)) {
+            return ['lat' => $lat, 'lng' => $lng];
+        }
+
+        // Check results array (findGarage, listGarages, findExternalService)
+        if (isset($result['results']) && is_array($result['results']) && !empty($result['results'])) {
+            $firstResult = $result['results'][0];
+            if (isset($firstResult['latitude']) && isset($firstResult['longitude'])) {
+                $latVal = $firstResult['latitude'];
+                $lngVal = $firstResult['longitude'];
+                if ($latVal !== null && $latVal !== '' && $lngVal !== null && $lngVal !== '') {
+                    $lat = is_numeric($latVal) ? (float)$latVal : $latVal;
+                    $lng = is_numeric($lngVal) ? (float)$lngVal : $lngVal;
+                }
+            }
+        }
+        // Check result object (getGarageDetails)
+        elseif (isset($result['result']) && is_array($result['result'])) {
+            if (isset($result['result']['latitude']) && isset($result['result']['longitude'])) {
+                $latVal = $result['result']['latitude'];
+                $lngVal = $result['result']['longitude'];
+                if ($latVal !== null && $latVal !== '' && $lngVal !== null && $lngVal !== '') {
+                    $lat = is_numeric($latVal) ? (float)$latVal : $latVal;
+                    $lng = is_numeric($lngVal) ? (float)$lngVal : $lngVal;
+                }
+            }
+        }
+
+        return ['lat' => $lat, 'lng' => $lng];
+    }
+
+    /**
+     * Update assistant message based on results
+     */
+    private function updateAssistantMessage(string $assistantText, bool $noMoreResults, array $garagesData): string
+    {
+        if ($noMoreResults && empty($garagesData)) {
+            return 'All matching garages for your search have been provided to you.';
+        } elseif (!empty($garagesData)) {
+            return $this->ensureMinimalGarageMessage($assistantText, $garagesData);
+        }
+        return $assistantText;
+    }
+
+    /**
+     * Generate Google Maps URL with priority: name+address > place_id > coordinates
+     */
+    private function generateGoogleMapsUrl(?string $name, ?string $address, ?string $placeId = null, ?float $lat = null, ?float $lng = null): ?string
+    {
+        // Priority 1: Use place name + address (most reliable)
+        if (!empty($name) && $name !== 'Unknown') {
+            $encodedName = urlencode($name);
+            if (!empty($address) && trim($address) !== '') {
+                $encodedAddress = urlencode($address);
+                return "https://www.google.com/maps/search/?api=1&query={$encodedName},{$encodedAddress}";
+            }
+            return "https://www.google.com/maps/search/?api=1&query={$encodedName},Kuwait";
+        }
+        
+        // Priority 2: Use place_id with name
+        if (!empty($placeId) && !empty($name) && $name !== 'Unknown') {
+            $encodedPlaceId = urlencode($placeId);
+            $encodedName = urlencode($name);
+            return "https://www.google.com/maps/search/?api=1&query={$encodedName}&query_place_id={$encodedPlaceId}";
+        }
+        
+        // Priority 2b: Direct place_id format
+        if (!empty($placeId)) {
+            $encodedPlaceId = urlencode($placeId);
+            return "https://www.google.com/maps/place/?q=place_id:{$encodedPlaceId}";
+        }
+        
+        // Priority 3: Fallback to address only
+        if (!empty($address) && trim($address) !== '' && $address !== 'Address not available') {
+            $mapsQuery = urlencode($address);
+            return "https://www.google.com/maps/search/?api=1&query={$mapsQuery}";
+        }
+        
+        // Priority 4: Fallback to coordinates
+        if ($lat !== null && $lng !== null) {
+            return "https://www.google.com/maps/search/?api=1&query={$lat},{$lng}";
+        }
+        
+        return null;
     }
 }

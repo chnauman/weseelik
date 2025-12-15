@@ -5,7 +5,6 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\JsonEditorController;
 use App\Models\Garage;
-
 Route::get('/', function () {
     return view('user.home');
 })->name('home');
@@ -132,6 +131,10 @@ Route::post('/scraper/scrape', [App\Http\Controllers\GooglePlacesScraperControll
 Route::get('/chat-test', function () {
     return view('chat-test');
 })->name('chat-test');
+
+// Fetch Garages from Google Maps
+Route::get('/fetch-garages', [App\Http\Controllers\Admin\FetchGaragesController::class, 'index'])->name('fetch-garages.index');
+Route::post('/fetch-garages/fetch', [App\Http\Controllers\Admin\FetchGaragesController::class, 'fetch'])->name('fetch-garages.fetch');
 
 Route::get('/unique-locations', function () {
     $unique_locations = Garage::select('area')->distinct()->get()->toArray();
