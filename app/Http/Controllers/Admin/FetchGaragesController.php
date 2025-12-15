@@ -3,9 +3,11 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Jobs\FetchGaragesJob;
 use App\Models\Garage;
 use App\Services\GooglePlacesService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 
 class FetchGaragesController extends Controller
@@ -27,7 +29,7 @@ class FetchGaragesController extends Controller
     }
 
     /**
-     * Fetch garages for selected area via AJAX
+     * Fetch garages for selected area via AJAX (dispatches async job)
      */
     public function fetch(Request $request)
     {
@@ -45,57 +47,58 @@ class FetchGaragesController extends Controller
             ], 400);
         }
 
-        $garages = [];
-        $stats = [
-            'processed' => 0,
-            'new' => 0,
-            'skipped' => 0,
-            'failed' => 0
-        ];
-
         try {
-            $this->googlePlacesService->fetchAndStoreGarages(
-                $area,
-                $coordinates['lat'],
-                $coordinates['lng'],
-                function ($garage, $status) use (&$garages, &$stats) {
-                    $stats['processed']++;
-                    
-                    if ($status === 'created' && $garage) {
-                        $stats['new']++;
-                        // Format garage for frontend
-                        $garages[] = [
-                            'id' => $garage->id,
-                            'title' => $garage->title,
-                            'title_ar' => $garage->title_ar,
-                            'address' => $garage->address,
-                            'contact_no' => $garage->contact_no,
-                            'rating' => $garage->rating,
-                            'service_description' => $garage->service_description,
-                            'maps_share_link' => $garage->maps_share_link,
-                        ];
-                    } elseif ($status === 'skipped') {
-                        $stats['skipped']++;
-                    } elseif ($status === 'failed') {
-                        $stats['failed']++;
-                    }
-                }
-            );
+            // Dispatch job to queue
+            $job = new FetchGaragesJob($area, $coordinates['lat'], $coordinates['lng']);
+            dispatch($job);
 
             return response()->json([
                 'success' => true,
-                'garages' => $garages,
-                'stats' => $stats,
-                'message' => "Fetched {$stats['new']} new garages, skipped {$stats['skipped']} duplicates"
+                'job_id' => $job->jobId,
+                'message' => 'Garage fetching started. Please wait while we process the request...'
             ]);
 
         } catch (\Exception $e) {
-            Log::error('Error fetching garages: ' . $e->getMessage());
+            Log::error('Error dispatching fetch garages job: ' . $e->getMessage());
             return response()->json([
                 'success' => false,
                 'message' => 'Error: ' . $e->getMessage()
             ], 500);
         }
+    }
+
+    /**
+     * Check job status
+     */
+    public function status(Request $request)
+    {
+        $request->validate([
+            'job_id' => 'required|string',
+        ]);
+
+        $jobId = $request->input('job_id');
+        $status = Cache::get("fetch_garages_{$jobId}");
+
+        if (!$status) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Job not found or expired'
+            ], 404);
+        }
+
+        return response()->json([
+            'success' => true,
+            'status' => $status['status'] ?? 'unknown',
+            'stats' => [
+                'processed' => $status['processed'] ?? 0,
+                'new' => $status['new'] ?? 0,
+                'skipped' => $status['skipped'] ?? 0,
+                'failed' => $status['failed'] ?? 0,
+            ],
+            'garages' => $status['garages'] ?? [],
+            'message' => $status['message'] ?? null,
+            'error' => $status['error'] ?? null,
+        ]);
     }
 
 

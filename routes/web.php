@@ -135,6 +135,7 @@ Route::get('/chat-test', function () {
 // Fetch Garages from Google Maps
 Route::get('/fetch-garages', [App\Http\Controllers\Admin\FetchGaragesController::class, 'index'])->name('fetch-garages.index');
 Route::post('/fetch-garages/fetch', [App\Http\Controllers\Admin\FetchGaragesController::class, 'fetch'])->name('fetch-garages.fetch');
+Route::get('/fetch-garages/status', [App\Http\Controllers\Admin\FetchGaragesController::class, 'status'])->name('fetch-garages.status');
 
 Route::get('/unique-locations', function () {
     $unique_locations = Garage::select('area')->distinct()->get()->toArray();

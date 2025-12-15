@@ -36,6 +36,47 @@
         .card-body {
             padding: 30px;
         }
+        .garage-card {
+            margin-bottom: 20px;
+            animation: fadeIn 0.5s ease-in;
+        }
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+        .garage-card .card {
+            height: 100%;
+            border: 1px solid #e0e0e0;
+        }
+        .garage-card .card-body {
+            padding: 15px;
+        }
+        .garage-card .card-title {
+            font-size: 1.1rem;
+            font-weight: bold;
+            margin-bottom: 10px;
+            color: #333;
+        }
+        .garage-card .card-text {
+            font-size: 0.9rem;
+            color: #666;
+            margin-bottom: 8px;
+        }
+        .badge-new {
+            background-color: #28a745;
+            color: white;
+            padding: 4px 8px;
+            border-radius: 3px;
+            font-size: 0.75rem;
+            margin-bottom: 10px;
+            display: inline-block;
+        }
     </style>
 </head>
 <body>
@@ -58,20 +99,11 @@
             <button type="submit" class="btn btn-primary" id="fetchBtn">
                 <i class="fa fa-search"></i> Fetch Garages
             </button>
-            <button type="button" class="btn btn-secondary" id="stopBtn" style="display: none;">
-                <i class="fa fa-stop"></i> Stop Fetching
-            </button>
         </form>
 
-        <div id="progressContainer" style="display: none; margin-top: 20px;">
-            <div class="progress" style="height: 30px;">
-                <div class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar" 
-                     style="width: 0%" id="progressBar">
-                    <span id="progressText">0%</span>
-                </div>
-            </div>
-            <div class="mt-2">
-                <small id="statsText">Processing...</small>
+        <div id="resultContainer" class="mt-4" style="display: none;">
+            <div class="alert alert-success">
+                <strong id="resultMessage"></strong>
             </div>
         </div>
 
@@ -82,48 +114,9 @@
             </div>
         </div>
 
-        <div id="errorContainer" class="alert alert-danger" style="display: none; margin-top: 20px;">
+        <div id="errorContainer" class="alert alert-danger mt-4" style="display: none;">
             <strong>Error:</strong> <span id="errorMessage"></span>
         </div>
-    </div>
-</div>
-
-<style>
-    .garage-card {
-        margin-bottom: 20px;
-        animation: fadeIn 0.5s ease-in;
-    }
-    @keyframes fadeIn {
-        from {
-            opacity: 0;
-            transform: translateY(10px);
-        }
-        to {
-            opacity: 1;
-            transform: translateY(0);
-        }
-    }
-    .garage-card .card-body {
-        padding: 15px;
-    }
-    .garage-card .card-title {
-        font-size: 1.1rem;
-        font-weight: bold;
-        margin-bottom: 10px;
-    }
-    .garage-card .card-text {
-        font-size: 0.9rem;
-        color: #666;
-        margin-bottom: 5px;
-    }
-    .badge-new {
-        background-color: #28a745;
-        color: white;
-        padding: 5px 10px;
-        border-radius: 3px;
-        font-size: 0.8rem;
-    }
-    </style>
             </div>
         </div>
     </div>
@@ -133,7 +126,8 @@
     <script>
 $(document).ready(function() {
     let isFetching = false;
-    let fetchTimeout = null;
+    let statusPollInterval = null;
+    let currentJobId = null;
 
     $('#fetchGaragesForm').on('submit', function(e) {
         e.preventDefault();
@@ -149,20 +143,14 @@ $(document).ready(function() {
         }
 
         // Reset UI
-        $('#garagesGrid').empty();
         $('#errorContainer').hide();
-        $('#progressContainer').show();
-        $('#garagesContainer').show();
+        $('#resultContainer').hide();
+        $('#garagesContainer').hide();
+        $('#garagesGrid').empty();
         $('#fetchBtn').prop('disabled', true).html('<i class="fa fa-spinner fa-spin"></i> Fetching...');
-        $('#stopBtn').show();
         isFetching = true;
 
-        // Update progress
-        $('#progressBar').css('width', '10%');
-        $('#progressText').text('10%');
-        $('#statsText').text('Starting to fetch garages...');
-
-        // Start fetching
+        // Start fetching - dispatch job
         $.ajax({
             url: '{{ route("fetch-garages.fetch") }}',
             method: 'POST',
@@ -171,48 +159,17 @@ $(document).ready(function() {
                 _token: '{{ csrf_token() }}'
             },
             success: function(response) {
-                if (response.success) {
-                    // Update progress
-                    $('#progressBar').css('width', '50%');
-                    $('#progressText').text('50%');
-                    $('#statsText').text('Processing garages...');
-
-                    // Process garages with delay for visual effect
-                    if (response.garages && response.garages.length > 0) {
-                        let index = 0;
-                        function addNextGarage() {
-                            if (index < response.garages.length) {
-                                addGarageCard(response.garages[index]);
-                                index++;
-                                
-                                // Update progress
-                                const progress = 50 + (index / response.garages.length) * 40;
-                                $('#progressBar').css('width', progress + '%');
-                                $('#progressText').text(Math.round(progress) + '%');
-                                
-                                // Add next garage with slight delay for visual effect
-                                setTimeout(addNextGarage, 100);
-                            } else {
-                                // All garages added
-                                $('#progressBar').css('width', '100%');
-                                $('#progressText').text('100%');
-                                updateStats(response.stats);
-                                stopFetching();
-                            }
-                        }
-                        addNextGarage();
-                    } else {
-                        // No new garages
-                        updateStats(response.stats);
-                        stopFetching();
-                    }
+                if (response.success && response.job_id) {
+                    currentJobId = response.job_id;
+                    // Start polling for status
+                    startStatusPolling(response.job_id);
                 } else {
-                    showError(response.message || 'Failed to fetch garages');
+                    showError(response.message || 'Failed to start garage fetching');
                     stopFetching();
                 }
             },
             error: function(xhr) {
-                let errorMsg = 'An error occurred while fetching garages';
+                let errorMsg = 'An error occurred while starting garage fetch';
                 if (xhr.responseJSON && xhr.responseJSON.message) {
                     errorMsg = xhr.responseJSON.message;
                 }
@@ -222,9 +179,80 @@ $(document).ready(function() {
         });
     });
 
-    $('#stopBtn').on('click', function() {
-        stopFetching();
-    });
+    function startStatusPolling(jobId) {
+        // Clear any existing interval
+        if (statusPollInterval) {
+            clearInterval(statusPollInterval);
+        }
+
+        // Poll every 2 seconds
+        statusPollInterval = setInterval(function() {
+            checkJobStatus(jobId);
+        }, 2000);
+
+        // Initial check
+        checkJobStatus(jobId);
+    }
+
+    function checkJobStatus(jobId) {
+        $.ajax({
+            url: '{{ route("fetch-garages.status") }}',
+            method: 'GET',
+            data: {
+                job_id: jobId
+            },
+            success: function(response) {
+                if (response.success) {
+                    const status = response.status;
+                    const stats = response.stats || {};
+
+                    if (status === 'processing') {
+                        // Still processing, continue polling
+                        // Don't show anything to user while processing
+                    } else if (status === 'completed') {
+                        // Job completed - show result
+                        clearInterval(statusPollInterval);
+                        statusPollInterval = null;
+                        
+                        const newCount = stats.new || 0;
+                        const garages = response.garages || [];
+                        showResult(newCount, garages);
+                        stopFetching();
+                    } else if (status === 'failed') {
+                        // Job failed
+                        clearInterval(statusPollInterval);
+                        statusPollInterval = null;
+                        
+                        showError(response.error || 'Job failed');
+                        stopFetching();
+                    }
+                } else {
+                    // Job not found or expired
+                    clearInterval(statusPollInterval);
+                    statusPollInterval = null;
+                    showError(response.message || 'Job status not found');
+                    stopFetching();
+                }
+            },
+            error: function(xhr) {
+                // Continue polling on error (might be temporary)
+                console.error('Error checking job status:', xhr);
+            }
+        });
+    }
+
+    function showResult(newCount, garages) {
+        $('#resultMessage').text(`Successfully fetched ${newCount} new garage(s).`);
+        $('#resultContainer').show();
+        
+        // Display garage cards
+        if (garages.length > 0) {
+            garages.forEach(function(garage) {
+                addGarageCard(garage);
+            });
+            $('#garagesContainer').show();
+        }
+    }
 
     function addGarageCard(garage) {
         // Check if garage card already exists
@@ -243,46 +271,13 @@ $(document).ready(function() {
                         ${garage.contact_no ? `<p class="card-text"><strong>Phone:</strong> ${escapeHtml(garage.contact_no)}</p>` : ''}
                         ${garage.rating ? `<p class="card-text"><strong>Rating:</strong> ${garage.rating}/5</p>` : ''}
                         ${garage.service_description ? `<p class="card-text"><strong>Services:</strong> ${escapeHtml(garage.service_description)}</p>` : ''}
-                        ${garage.maps_share_link ? `<a href="${escapeHtml(garage.maps_share_link)}" target="_blank" class="btn btn-sm btn-primary mt-2">View on Maps</a>` : ''}
+                        ${garage.maps_share_link ? `<a href="${escapeHtml(garage.maps_share_link)}" target="_blank" class="btn btn-sm btn-primary mt-2"><i class="fa fa-map-marker"></i> View on Maps</a>` : ''}
                     </div>
                 </div>
             </div>
         `;
 
         $('#garagesGrid').append(cardHtml);
-        
-        // Scroll to bottom smoothly
-        $('html, body').animate({
-            scrollTop: $(document).height()
-        }, 500);
-    }
-
-    function updateStats(stats) {
-        const total = stats.processed || 0;
-        const newCount = stats.new || 0;
-        const skipped = stats.skipped || 0;
-        const failed = stats.failed || 0;
-
-        // Update progress bar (if we have a total estimate)
-        // For now, just show stats
-        $('#statsText').text(
-            `Processed: ${total} | New: ${newCount} | Skipped: ${skipped} | Failed: ${failed}`
-        );
-    }
-
-    function showError(message) {
-        $('#errorMessage').text(message);
-        $('#errorContainer').show();
-    }
-
-    function stopFetching() {
-        isFetching = false;
-        if (fetchTimeout) {
-            clearTimeout(fetchTimeout);
-            fetchTimeout = null;
-        }
-        $('#fetchBtn').prop('disabled', false).html('<i class="fa fa-search"></i> Fetch Garages');
-        $('#stopBtn').hide();
     }
 
     function escapeHtml(text) {
@@ -295,6 +290,21 @@ $(document).ready(function() {
             "'": '&#039;'
         };
         return String(text).replace(/[&<>"']/g, function(m) { return map[m]; });
+    }
+
+    function showError(message) {
+        $('#errorMessage').text(message);
+        $('#errorContainer').show();
+    }
+
+    function stopFetching() {
+        isFetching = false;
+        currentJobId = null;
+        if (statusPollInterval) {
+            clearInterval(statusPollInterval);
+            statusPollInterval = null;
+        }
+        $('#fetchBtn').prop('disabled', false).html('<i class="fa fa-search"></i> Fetch Garages');
     }
 });
 </script>
