@@ -35,8 +35,8 @@ class GooglePlacesService
         $cacheKey = "fetched_place_ids_{$area}";
         $fetchedPlaceIds = Cache::get($cacheKey, []);
         
-        // Search for nearby places
-        $nearbyPlaces = $this->searchNearbyPlaces($lat, $lng);
+        // Search for places using Text Search API (searches by area name, no radius restriction)
+        $nearbyPlaces = $this->searchPlacesByArea($area, $lat, $lng);
 
         if (empty($nearbyPlaces)) {
             return;
@@ -87,6 +87,15 @@ class GooglePlacesService
             // Merge basic place data with details
             $fullPlaceData = array_merge($place, $placeDetails);
 
+            // Check if the garage address contains the selected area name
+            if (!$this->isGarageInArea($fullPlaceData, $area)) {
+                // Skip this garage - it doesn't belong to the selected area
+                if ($callback) {
+                    $callback(null, 'skipped');
+                }
+                continue;
+            }
+
             // Create garage record
             $newGarage = $this->createGarageFromPlace($fullPlaceData, $area);
 
@@ -115,8 +124,85 @@ class GooglePlacesService
     }
 
     /**
+     * Search for places using Google Places Text Search API
+     * Searches by area name - no radius restriction, fetches all matching garages
+     */
+    private function searchPlacesByArea(string $area, float $lat, float $lng): array
+    {
+        $allResults = [];
+        $nextPageToken = null;
+        $maxPages = 20; // Allow more pages to get all results (20 pages = 200 results max)
+        $seenPlaceIds = []; // Track place IDs to avoid duplicates
+        
+        // Build comprehensive search query - search for car repair/garage services in the specific area
+        $searchQuery = "car repair garage {$area} Kuwait";
+        
+        // Kuwait center coordinates for location bias (ensures results are prioritized for Kuwait)
+        $kuwaitCenterLat = 29.3759;
+        $kuwaitCenterLng = 47.9774;
+        
+        do {
+            $url = "https://maps.googleapis.com/maps/api/place/textsearch/json";
+            
+            $params = [
+                'query' => $searchQuery,
+                'location' => "{$kuwaitCenterLat},{$kuwaitCenterLng}",
+                'radius' => 100000, // 100km radius from Kuwait center (location bias, not strict filter)
+                'key' => $this->googlePlacesApiKey,
+            ];
+
+            if ($nextPageToken) {
+                $params['pagetoken'] = $nextPageToken;
+                // Must wait before using pagetoken
+                sleep(2);
+            }
+
+            try {
+                $response = Http::timeout(30)->get($url, $params);
+                
+                if (!$response->successful()) {
+                    Log::warning('Google Places Text Search failed: ' . $response->status());
+                    break;
+                }
+
+                $data = $response->json();
+
+                if ($data && isset($data['status']) && $data['status'] === 'OK' && !empty($data['results'])) {
+                    // Add results, avoiding duplicates
+                    foreach ($data['results'] as $result) {
+                        $placeId = $result['place_id'] ?? null;
+                        if ($placeId && !in_array($placeId, $seenPlaceIds)) {
+                            $allResults[] = $result;
+                            $seenPlaceIds[] = $placeId;
+                        }
+                    }
+                    $nextPageToken = $data['next_page_token'] ?? null;
+                } elseif (isset($data['status']) && $data['status'] === 'ZERO_RESULTS') {
+                    break;
+                } else {
+                    Log::warning('Google Places Text Search error: ' . ($data['status'] ?? 'UNKNOWN'));
+                    break;
+                }
+
+                $maxPages--;
+                if ($maxPages <= 0) {
+                    break;
+                }
+
+            } catch (\Exception $e) {
+                Log::error('Google Places Text Search exception: ' . $e->getMessage());
+                break;
+            }
+
+        } while ($nextPageToken);
+
+        return $allResults;
+    }
+
+    /**
      * Search for nearby places using Google Places Nearby Search API
      * Limits to 3 pages (60 results max) to avoid excessive API calls
+     * @deprecated Use searchPlacesByArea instead for area-based searches
      */
     private function searchNearbyPlaces(float $lat, float $lng): array
     {
@@ -292,6 +378,89 @@ class GooglePlacesService
         }
 
         return false;
+    }
+
+    /**
+     * Check if garage address contains the selected area name
+     * Uses partial, case-insensitive matching
+     */
+    private function isGarageInArea(array $placeData, string $selectedArea): bool
+    {
+        // Normalize area name for matching (remove common words and extra spaces)
+        $normalizedArea = $this->normalizeAreaName($selectedArea);
+        $areaWords = explode(' ', $normalizedArea);
+        $areaWords = array_filter($areaWords, function($word) {
+            return strlen($word) > 2; // Only consider words longer than 2 characters
+        });
+
+        if (empty($areaWords)) {
+            return false;
+        }
+
+        // Check formatted_address
+        $formattedAddress = $placeData['formatted_address'] ?? '';
+        if (!empty($formattedAddress)) {
+            $normalizedAddress = mb_strtolower($formattedAddress);
+            foreach ($areaWords as $word) {
+                if (stripos($normalizedAddress, mb_strtolower($word)) !== false) {
+                    return true;
+                }
+            }
+        }
+
+        // Check vicinity
+        $vicinity = $placeData['vicinity'] ?? '';
+        if (!empty($vicinity)) {
+            $normalizedVicinity = mb_strtolower($vicinity);
+            foreach ($areaWords as $word) {
+                if (stripos($normalizedVicinity, mb_strtolower($word)) !== false) {
+                    return true;
+                }
+            }
+        }
+
+        // Check address_components
+        $addressComponents = $placeData['address_components'] ?? [];
+        foreach ($addressComponents as $component) {
+            $longName = mb_strtolower($component['long_name'] ?? '');
+            $shortName = mb_strtolower($component['short_name'] ?? '');
+            
+            foreach ($areaWords as $word) {
+                $normalizedWord = mb_strtolower($word);
+                if (stripos($longName, $normalizedWord) !== false || 
+                    stripos($shortName, $normalizedWord) !== false) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Normalize area name for better matching
+     * Removes common words and extra spaces, handles hyphens
+     */
+    private function normalizeAreaName(string $areaName): string
+    {
+        // Remove common words that might interfere with matching
+        $commonWords = ['block', 'blk', 'street', 'st', 'road', 'rd', 'avenue', 'ave'];
+        
+        $normalized = mb_strtolower(trim($areaName));
+        
+        // Replace hyphens with spaces for better matching
+        $normalized = str_replace(['-', '_'], ' ', $normalized);
+        
+        // Remove common words
+        foreach ($commonWords as $word) {
+            $normalized = preg_replace('/\b' . preg_quote($word, '/') . '\b/i', '', $normalized);
+        }
+        
+        // Clean up extra spaces
+        $normalized = preg_replace('/\s+/', ' ', $normalized);
+        $normalized = trim($normalized);
+        
+        return $normalized;
     }
 
     /**
