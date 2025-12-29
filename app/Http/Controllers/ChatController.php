@@ -215,14 +215,14 @@ class ChatController extends Controller
                                 'items' => [
                                     'type' => 'string'
                                 ],
-                                'description' => 'Optional: Tags inferred from the user's problem or request (e.g., "oil change", "flat tire"). If user says "all services" or "any service", omit this parameter.'
+                                'description' => 'Optional: Tags inferred from the user\'s problem or request (e.g., "oil change", "flat tire"). If user says "all services" or "any service", omit this parameter.'
                             ],
                             'selected_specializations' => [
                                 'type' => 'array',
                                 'items' => [
                                     'type' => 'string'
                                 ],
-                                'description' => 'Optional: Specific vehicle or service specializations relevant to the user's need. If user says "any" or "all", omit this parameter.'
+                                'description' => 'Optional: Specific vehicle or service specializations relevant to the user\'s need. If user says "any" or "all", omit this parameter.'
                             ],
                             'selected_services' => [
                                 'type' => 'array',
