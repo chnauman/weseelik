@@ -33,9 +33,6 @@ class ChatController extends Controller
         $model = env('OPENAI_MODEL', 'gpt-4o-mini');
         $temperature = env('OPENAI_TEMPERATURE', 0.7);
         
-        // Check if this is a "more" request
-        $isMoreRequest = $this->isMoreRequest($userMessage);
-        
         // Resolve or create conversation (supports guests via session id)
         $conversation = "";
         
@@ -53,15 +50,45 @@ class ChatController extends Controller
             $conversation = DB::table('conversations')->where('id', $conversationId)->first();
         }
         
+        // Check if this is a "more" request and extract number if specified
+        $moreRequestResult = $this->isMoreRequest($userMessage);
+        $isMoreRequest = $moreRequestResult['isMore'];
+        $moreRequestLimit = $moreRequestResult['limit'] ?? null; // Number extracted from "3 more", "10 more", etc.
+        
+        // Check if user mentioned a new location (different from previous search)
+        $hasNewLocation = $this->detectNewLocation($userMessage, $conversation->id);
+        
         // Get stored search state if this is a "more" request
         $searchState = null;
         if ($isMoreRequest) {
-            $searchState = $this->getSearchState($conversation->id);
-            if (!$searchState) {
+            // For "more" requests, prioritize preserving search state
+            // Only treat as new search if there's a CLEAR new location mention
+            if ($hasNewLocation) {
+                // User explicitly mentioned a different location - this is a new search
+                $this->clearSearchState($conversation->id);
                 $isMoreRequest = false;
+            } else {
+                // It's a "more" request with no new location - use previous search state
+                $searchState = $this->getSearchState($conversation->id);
+                if (!$searchState) {
+                    // No previous search state found - can't do "more"
+                    $isMoreRequest = false;
+                } else {
+                    // Store the limit override for this "more" request
+                    if ($moreRequestLimit !== null) {
+                        $searchState['_more_request_limit'] = $moreRequestLimit;
+                    }
+                }
             }
         } else {
-            $this->clearSearchState($conversation->id);
+            // Not a "more" request - clear search state for new searches
+            // But only clear if there's actually a new location or it's a completely new query
+            if ($hasNewLocation) {
+                $this->clearSearchState($conversation->id);
+            } else {
+                // For regular queries, we'll store new search state after the search
+                // Don't clear here - let the new search create its own state
+            }
         }
 
         // Save user message
@@ -97,6 +124,84 @@ class ChatController extends Controller
 
         //return response()->json($history);
 
+        // Build previous search info for "more" requests
+        $previousSearchInfo = '';
+        if ($isMoreRequest) {
+            // Try to get search state if not already retrieved
+            if (!$searchState) {
+                $searchState = $this->getSearchState($conversation->id);
+            }
+            
+            // If we have search state, use it
+            if ($searchState && isset($searchState['search_params'])) {
+                $prevParams = $searchState['search_params'];
+                $prevLocation = $prevParams['location'] ?? 'not specified';
+                
+                // Use the override limit if specified (e.g., "3 more", "10 more"), otherwise use original limit
+                $limitToUse = $moreRequestLimit ?? ($prevParams['limit'] ?? 5);
+                
+                $additionalParams = [];
+                if (isset($prevParams['selected_services']) && !empty($prevParams['selected_services'])) {
+                    $additionalParams[] = "selected_services: " . json_encode($prevParams['selected_services']);
+                }
+                if (isset($prevParams['selected_tags']) && !empty($prevParams['selected_tags'])) {
+                    $additionalParams[] = "selected_tags: " . json_encode($prevParams['selected_tags']);
+                }
+                if (isset($prevParams['selected_categories']) && !empty($prevParams['selected_categories'])) {
+                    $additionalParams[] = "selected_categories: " . json_encode($prevParams['selected_categories']);
+                }
+                if (isset($prevParams['selected_specializations']) && !empty($prevParams['selected_specializations'])) {
+                    $additionalParams[] = "selected_specializations: " . json_encode($prevParams['selected_specializations']);
+                }
+                
+                $paramsList = !empty($additionalParams) ? "\n                " . implode("\n                ", $additionalParams) : "";
+                $limitNote = $moreRequestLimit !== null ? " (user requested {$moreRequestLimit} more)" : "";
+                
+                $previousSearchInfo = "
+                
+                ═══════════════════════════════════════════════════════════════
+                PREVIOUS SEARCH PARAMETERS - USE THESE EXACTLY (DO NOT ASK QUESTIONS):
+                ═══════════════════════════════════════════════════════════════
+                The user is asking for MORE results from the previous search in \"{$prevLocation}\".
+                
+                MANDATORY ACTION: Call findGarage IMMEDIATELY with these EXACT parameters:
+                - location: \"{$prevLocation}\" (MUST USE THIS - DO NOT ASK FOR LOCATION)
+                - limit: {$limitToUse}{$limitNote}{$paramsList}
+                
+                CRITICAL RULES:
+                ❌ DO NOT ask for location - use \"{$prevLocation}\" from previous search
+                ❌ DO NOT ask any questions - just call findGarage immediately
+                ✅ Use the SAME location \"{$prevLocation}\" - it persists until user mentions a DIFFERENT location
+                ✅ Only change location if user explicitly says a different location name (e.g., \"in al shuaikh\", \"in hawalli\")
+                
+                The user said \"more\" or \"find more\" - this means they want MORE results from the SAME search in \"{$prevLocation}\".
+                ACTION REQUIRED: Call findGarage NOW with location=\"{$prevLocation}\". Do NOT ask questions.
+                ═══════════════════════════════════════════════════════════════";
+            } elseif ($isMoreRequest) {
+                // Fallback: If search state is missing but it's a "more" request,
+                // extract location from conversation history and instruct AI to use it
+                $lastLocation = $this->extractLocationFromHistory($history);
+                if ($lastLocation) {
+                    $limitToUse = $moreRequestLimit ?? 5;
+                    $previousSearchInfo = "
+                
+                ═══════════════════════════════════════════════════════════════
+                USER REQUESTED MORE RESULTS - USE PREVIOUS LOCATION:
+                ═══════════════════════════════════════════════════════════════
+                The user said \"more\" or \"find more\" - they want MORE results from the PREVIOUS search.
+                
+                Based on conversation history, the previous location was: \"{$lastLocation}\"
+                
+                MANDATORY ACTION: Call findGarage IMMEDIATELY with:
+                - location: \"{$lastLocation}\" (USE THIS - DO NOT ASK FOR LOCATION)
+                - limit: {$limitToUse}
+                
+                CRITICAL: Do NOT ask \"Could you please provide the location\". Use \"{$lastLocation}\" from the previous search.
+                ═══════════════════════════════════════════════════════════════";
+                }
+            }
+        }
+
         array_unshift($history, [
             'role' => 'system',
             'content' => "
@@ -130,19 +235,41 @@ class ChatController extends Controller
                 - User: \"hawalli\" → Match to \"hawalli\", \"hawalli industrial\", or \"hawalli residential\" (whichever exists)
                 - User: \"kuwait city\" → Match to \"kuwait city\" or similar variation in list
 
-                QUESTION FLOW - CRITICAL ORDER (for garage searches):
-                You MUST follow this exact order when gathering information:
-                1. LOCATION (REQUIRED) - Always ask for location first if not provided. Use smart area matching from the available areas list above.
-                2. SERVICE/NEED (Optional but recommended) - Ask what service they need (e.g., AC repair, oil change, tire change). If user says \"all services\", \"any service\", \"everything\", or similar, proceed without filtering by service.
-                3. VEHICLE DETAILS (Optional) - Ask for vehicle brand, model, year. If user says \"any vehicle\", \"all vehicles\", \"any car\", or similar, proceed without vehicle filters.
+                CONTEXT AWARENESS - ABSOLUTE PRIORITY:
+                STEP 1: ALWAYS check conversation history FIRST before asking ANY question. Look at ALL previous user messages.
+                STEP 2: If location exists in conversation history OR current message → call findGarage IMMEDIATELY with that location.
+                STEP 3: Service filters are OPTIONAL. If user says \"any\", \"all services\", \"everything\", \"just tell me any garage\" → proceed WITHOUT service filter.
                 
-                IMPORTANT RULES:
-                - Location is ALWAYS REQUIRED for findGarage. Never call findGarage without a location.
-                - Never ask for obvious information (e.g., if user says 'in Salmiya', don't ask 'Where are you located?').
-                - If user provides location in their message, use it immediately and move to next question.
-                - If user says \"all services\", \"any service\", \"any vehicle\", \"all vehicles\" - treat these as optional filters and search for ALL garages in the location.
-                - Once you have location, you can call findGarage. Other filters (service, vehicle details) are optional but helpful.
-                - Gather information naturally, one question at a time. Don't ask multiple questions at once.
+                CRITICAL DECISION TREE:
+                1. User provides NEW location (different from previous search) → This is a NEW search. Clear previous search state and call findGarage with new location.
+                2. User says \"any\", \"all services\", \"everything\" → Call findGarage with location from context, no service filter. Do NOT ask questions.
+                3. User says \"more\", \"find more\", \"show more\", \"3 more\", \"10 more\", etc. → Use previous search parameters (see PREVIOUS SEARCH PARAMETERS section if available). 
+                   - If user specifies a number (e.g., \"3 more\", \"show 10 more\"), extract that number and pass it as 'limit' parameter
+                   - Otherwise, use the previous limit or default to 5
+                   - Call findGarage immediately with SAME location and parameters. Do NOT ask questions.
+                4. Location missing AND not in history → Ask for location ONLY.
+                
+                PAGINATION RULES:
+                - When user says \"more\" or \"show more\" → Return next batch using SAME location and filters from previous search
+                - When user says \"3 more\" or \"10 more\" → Return that specific number using SAME location and filters
+                - Location persists until user explicitly mentions a DIFFERENT location (e.g., if last search was \"al ahmadi\" and user says \"more\", use \"al ahmadi\" again)
+                - Only start a NEW search when user explicitly mentions a different location
+                
+                MANDATORY RULES - NEVER VIOLATE:
+                ❌ NEVER ask for location if it exists in conversation history
+                ❌ NEVER ask for service if user said \"any\", \"all services\", \"everything\"
+                ❌ NEVER ask questions when user says \"more\" or \"find more\"
+                ❌ NEVER ask for service when location is provided - service is optional
+                ✅ ALWAYS use location from conversation history if available
+                ✅ ALWAYS proceed immediately when user provides valid responses like \"any\" or \"all services\"
+                ✅ ALWAYS call findGarage when you have location (from message OR history)
+                
+                EXAMPLES:
+                - User: \"find garages in al ahmadi\" → findGarage(location=\"al ahmadi\")
+                - User: \"find more\" → findGarage with previous parameters (no questions)
+                - User: \"al ahmadi\" → findGarage(location=\"al ahmadi\") immediately
+                - User: \"any\" (after location mentioned) → findGarage(location from context, no service filter)
+                - User: \"all services just tell me any garage\" → findGarage(location from context, no service filter)
                 
                 When the user describes a problem (e.g., 'my car's AC is not cooling'), intelligently map it to relevant tags, services, specializations, or categories, and pass them in the function call as arrays:
                 - 'selected_tags': inferred issue tags
@@ -164,7 +291,17 @@ class ChatController extends Controller
                 
                 RESPONSE FORMATTING:
                 - CRITICAL: When garage results are found (via findGarage, listGarages, or getGarageDetails), your response MUST be EXTREMELY MINIMAL. DO NOT list any garage names, addresses, phone numbers, or any garage details in your message. DO NOT format garages as numbered lists. DO NOT include any garage information in your response. Simply say something brief like 'Here are the garages I found in [location]:' or 'Found these garages for you:' and STOP. The garage details are provided separately in a structured format, so you must NEVER include them in your message text. If you see garage results in the tool response, acknowledge with ONLY a brief confirmation sentence - nothing more.
-                - PAGINATION: If the user asks for more garages (e.g., 'show more', 'next', 'more garages', 'load more', 'I need more options'), you MUST call the findGarage function again with the EXACT SAME parameters from the previous search. The system will automatically exclude already-shown garages and return the next batch. When showing more results, keep your response minimal as above.
+                - RESULT LIMIT: By default, findGarage returns 5 garages. If the user specifically asks for a number (e.g., \"3 garages\", \"10 garages\", \"show me 7 garages\"), you MUST extract that number and pass it as the 'limit' parameter. If the user doesn't specify a number, omit the 'limit' parameter to use the default of 5.
+                - PAGINATION - CRITICAL: When user asks for more (e.g., 'more', 'find more', 'show more', '3 more', '10 more', 'next'):
+                  * If PREVIOUS SEARCH PARAMETERS section exists above → Use those EXACT parameters immediately (MANDATORY)
+                  * If user specifies a number (e.g., \"3 more\", \"show 10 more\", \"find 7 more\"), extract that number and pass it as 'limit' parameter
+                  * If PREVIOUS SEARCH PARAMETERS section doesn't exist → Look at conversation history to find the MOST RECENT location mentioned
+                  * CRITICAL: The location from the previous search MUST be preserved. If user said \"find garages in salmiya\" and then \"find 7 more\", use \"salmiya\" again.
+                  * IMPORTANT: Use the SAME location from previous search. Do NOT ask for location again. Location persists until user explicitly mentions a DIFFERENT location.
+                  * Call findGarage IMMEDIATELY with those parameters (location from previous search, filters, and limit if specified)
+                  * DO NOT ask any questions - just call the function
+                  * Keep response minimal: \"Found these garages for you:\" or similar
+                  * NEVER ask \"Could you please provide the location\" when user says \"more\" - use the previous location
                 - NO RESULTS HANDLING: If no garages are found matching the user's criteria, politely inform them and ask if they would like to search in a different area. Example: \"I couldn't find any garages matching your criteria in [location]. Would you like to search in a different area?\"
                 - When displaying results from findExternalService, format them as a numbered list in this exact format (blank line after business name):
                   1. [Business Name](google_maps_url) - Make the business name clickable as a link that opens Google Maps
@@ -180,6 +317,7 @@ class ChatController extends Controller
                   * Personal advice or conversations
                   * Non-location related queries of any kind
                 - When declining non-location queries, politely say: 'I'm a location finder chatbot for Kuwait. I can only help you find garages or other businesses and services in Kuwait. How can I help you find a location?'
+                {$previousSearchInfo}
                 "
         ]);
 
@@ -237,6 +375,10 @@ class ChatController extends Controller
                                     'type' => 'string'
                                 ],
                                 'description' => 'Optional: Garage business categories, such as "mechanic", "electrician", or "tire shop". If user says "any" or "all", omit this parameter.'
+                            ],
+                            'limit' => [
+                                'type' => 'integer',
+                                'description' => 'Optional: Number of garages to return. Default is 5 if not specified. If user specifically asks for a number (e.g., "3 garages", "10 garages"), use that number. Otherwise, omit this parameter to use the default of 5.'
                             ],
                         ],
                         'required' => ['location'],
@@ -712,24 +854,146 @@ class ChatController extends Controller
     }
 
     /**
-     * Check if the user message is a "more" request
+     * Detect if user mentioned a new location (different from previous search)
+     * This should ONLY return true if there's an explicit location mention that's different from previous
      */
-    private function isMoreRequest(string $message): bool
+    private function detectNewLocation(string $message, int $conversationId): bool
     {
+        // Get previous search state
+        $searchState = $this->getSearchState($conversationId);
+        
+        // If no previous search exists, we can't detect a "new" location
+        if (!$searchState || !isset($searchState['search_params']['location'])) {
+            return false;
+        }
+        
+        $previousLocation = strtolower(trim($searchState['search_params']['location']));
         $messageLower = strtolower(trim($message));
-        $moreKeywords = [
-            'show more', 'more garages', 'load more', 'next', 'more results',
-            'i need more', 'give me more', 'more options', 'more please',
-            'show me more', 'get more', 'fetch more', 'bring more'
+        
+        // If message is just "more", "find more", "show more", "2 more", etc. - it's NOT a new location
+        // First check for simple number + "more" pattern (e.g., "2 more", "10 more")
+        if (preg_match('/^(\d+)\s+more(?:\s+garages?)?$/i', $messageLower)) {
+            return false; // Definitely a "more" request, not a new location
+        }
+        
+        $moreKeywords = ['more', 'next', 'load more', 'show more', 'find more'];
+        $isJustMoreRequest = false;
+        foreach ($moreKeywords as $keyword) {
+            // Check if message is primarily a "more" request (with optional numbers)
+            if (preg_match('/^(?:\d+\s*)?(?:' . preg_quote($keyword, '/') . ')(?:\s+garages?)?$/i', $messageLower) ||
+                preg_match('/^(?:find|show|get|give|bring|fetch)\s+(?:\d+\s*)?(?:more|garages?|results?|options?)(?:\s+garages?)?$/i', $messageLower)) {
+                $isJustMoreRequest = true;
+                break;
+            }
+        }
+        
+        // If it's just a "more" request, it's NOT a new location
+        if ($isJustMoreRequest) {
+            return false;
+        }
+        
+        // Only check for explicit location mentions with "in", "at", "near"
+        $locationPatterns = [
+            '/\bin\s+([a-z\s]+?)(?:\s|$|,|\.)/i',
+            '/\bat\s+([a-z\s]+?)(?:\s|$|,|\.)/i',
+            '/\bnear\s+([a-z\s]+?)(?:\s|$|,|\.)/i'
         ];
         
-        foreach ($moreKeywords as $keyword) {
-            if (strpos($messageLower, $keyword) !== false) {
-                return true;
+        foreach ($locationPatterns as $pattern) {
+            if (preg_match($pattern, $message, $matches)) {
+                $mentionedLocation = strtolower(trim($matches[1]));
+                // Remove common words that might be captured
+                $mentionedLocation = preg_replace('/\b(garages?|garage|find|search|for|a|the|in|at|near)\b/i', '', $mentionedLocation);
+                $mentionedLocation = trim($mentionedLocation);
+                
+                // If mentioned location is different from previous and not empty, it's a new location
+                if (!empty($mentionedLocation) && $mentionedLocation !== $previousLocation) {
+                    // Additional check: make sure it's not just a partial match
+                    if (strpos($previousLocation, $mentionedLocation) === false && 
+                        strpos($mentionedLocation, $previousLocation) === false) {
+                        return true;
+                    }
+                }
             }
         }
         
         return false;
+    }
+
+    /**
+     * Extract location from conversation history (fallback when search state is missing)
+     */
+    private function extractLocationFromHistory(array $history): ?string
+    {
+        // Look through history in reverse (most recent first) to find location mentions
+        $historyReversed = array_reverse($history);
+        
+        foreach ($historyReversed as $message) {
+            if ($message['role'] === 'user') {
+                $content = strtolower($message['content'] ?? '');
+                
+                // Look for location patterns: "in [location]", "at [location]", etc.
+                if (preg_match('/\b(?:in|at|near)\s+([a-z\s]+?)(?:\s|$|,|\.)/i', $content, $matches)) {
+                    $location = trim($matches[1]);
+                    // Remove common words
+                    $location = preg_replace('/\b(garages?|garage|find|search|for|a|the|in|at|near)\b/i', '', $location);
+                    $location = trim($location);
+                    
+                    if (!empty($location) && strlen($location) > 2) {
+                        return $location;
+                    }
+                }
+            }
+        }
+        
+        return null;
+    }
+
+    /**
+     * Check if the user message is a "more" request and extract number if specified
+     * Returns array with 'isMore' boolean and optional 'limit' number
+     */
+    private function isMoreRequest(string $message): array
+    {
+        $messageLower = strtolower(trim($message));
+        
+        // First, check for number + "more" pattern (e.g., "2 more", "10 more", "3 more garages")
+        // This catches simple patterns like "2 more" that might not match keyword list
+        if (preg_match('/^(\d+)\s+more/i', $messageLower, $matches)) {
+            return [
+                'isMore' => true,
+                'limit' => (int)$matches[1]
+            ];
+        }
+        
+        $moreKeywords = [
+            'show more', 'more garages', 'load more', 'next', 'more results',
+            'i need more', 'give me more', 'more options', 'more please',
+            'show me more', 'get more', 'fetch more', 'bring more', 'more'
+        ];
+        
+        $isMore = false;
+        foreach ($moreKeywords as $keyword) {
+            if (strpos($messageLower, $keyword) !== false) {
+                $isMore = true;
+                break;
+            }
+        }
+        
+        // Extract number from messages like "3 more", "10 more", "show 5 more", etc.
+        $limit = null;
+        if ($isMore) {
+            // Pattern to match numbers before "more" keywords
+            // Matches: "3 more", "10 more", "show 5 more garages", "give me 7 more", etc.
+            if (preg_match('/(\d+)\s*(?:more|garages?|results?|options?)/i', $messageLower, $matches)) {
+                $limit = (int)$matches[1];
+            }
+        }
+        
+        return [
+            'isMore' => $isMore,
+            'limit' => $limit
+        ];
     }
 
     /**
@@ -764,7 +1028,17 @@ class ChatController extends Controller
         if ($searchState && isset($searchState['all_garages']) && is_array($searchState['all_garages'])) {
             $allGarages = $searchState['all_garages'];
             $currentOffset = $searchState['current_offset'] ?? 0;
-            $perPage = 10;
+            
+            // Determine how many to return:
+            // 1. Use _more_request_limit if specified (e.g., "3 more", "10 more")
+            // 2. Otherwise use the original limit from search_params
+            // 3. Default to 5 if neither exists
+            $perPage = 5; // Default
+            if (isset($searchState['_more_request_limit']) && $searchState['_more_request_limit'] > 0) {
+                $perPage = (int)$searchState['_more_request_limit'];
+            } elseif (isset($searchState['search_params']['limit']) && $searchState['search_params']['limit'] > 0) {
+                $perPage = (int)$searchState['search_params']['limit'];
+            }
             
             // Get next batch
             $nextBatch = array_slice($allGarages, $currentOffset, $perPage);
@@ -794,6 +1068,9 @@ class ChatController extends Controller
         $selectedServices = $args['selected_services'] ?? [];
         $selectedSpecializations = $args['selected_specializations'] ?? [];
         $selectedCategories = $args['selected_categories'] ?? [];
+        $limit = isset($args['limit']) && is_numeric($args['limit']) && $args['limit'] > 0 
+            ? (int)$args['limit'] 
+            : 5; // Default to 5 if not specified
 
         // Kuwait country ID is 112
         $query = Garage::query()
@@ -1038,17 +1315,18 @@ class ChatController extends Controller
             ];
         })->toArray();
 
-        // Return ALL matching garages in the first response
+        // Limit results based on user's request (default 5)
         // Store all garages in cache for pagination (will be stored by handleChat after tool call)
+        $limitedResults = array_slice($allResults, 0, $limit);
         
         return [
             'status' => 'success',
             'action' => 'find_garage',
-            'count' => count($allResults),
+            'count' => count($limitedResults),
             'total_count' => count($allResults),
-            'results' => $allResults, // Return ALL garages, not just first 10
+            'results' => $limitedResults, // Return limited number of garages (default 5)
             '_all_garages' => $allResults, // Internal: all garages for caching
-            '_offset' => count($allResults), // Internal: current offset (all shown)
+            '_offset' => count($limitedResults), // Internal: current offset (limited results shown)
         ];
     }
 
