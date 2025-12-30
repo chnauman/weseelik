@@ -50,45 +50,87 @@ class ChatController extends Controller
             $conversation = DB::table('conversations')->where('id', $conversationId)->first();
         }
         
-        // Check if this is a "more" request and extract number if specified
+        $extractedLocation = $this->extractLocationFromMessage($userMessage);
+        $cachedLocation = $this->getCachedLocation($conversation->id);
+        $hasNewLocation = false;
+        
+        // If location extracted from message, cache it
+        if ($extractedLocation) {
+            if ($cachedLocation) {
+                // Compare extracted location with cached location (case-insensitive)
+                if (strtolower(trim($extractedLocation)) !== strtolower(trim($cachedLocation))) {
+                    $hasNewLocation = true;
+                    // Location changed - clear shown garage IDs for fresh search
+                    $this->clearShownGarageIds($conversation->id);
+                }
+            }
+            // Cache the location (replaces previous if different)
+            $this->setCachedLocation($conversation->id, $extractedLocation);
+            $cachedLocation = $extractedLocation; // Update for use in this request
+        }
+        
+        // Ensure cached location is always available (even if not in current message)
+        // This is critical for "more" requests
+        if (!$cachedLocation) {
+            // Try to get from search state if available
+            $tempSearchState = $this->getSearchState($conversation->id);
+            if ($tempSearchState && isset($tempSearchState['search_params']['location'])) {
+                $cachedLocation = $tempSearchState['search_params']['location'];
+                // Cache it for future use
+                $this->setCachedLocation($conversation->id, $cachedLocation);
+            }
+        }
+        
         $moreRequestResult = $this->isMoreRequest($userMessage);
         $isMoreRequest = $moreRequestResult['isMore'];
-        $moreRequestLimit = $moreRequestResult['limit'] ?? null; // Number extracted from "3 more", "10 more", etc.
+        $moreRequestLimit = $moreRequestResult['limit'] ?? null;
         
-        // Check if user mentioned a new location (different from previous search)
-        $hasNewLocation = $this->detectNewLocation($userMessage, $conversation->id);
-        
-        // Get stored search state if this is a "more" request
-        $searchState = null;
+        // Log "more" request detection
         if ($isMoreRequest) {
-            // For "more" requests, prioritize preserving search state
-            // Only treat as new search if there's a CLEAR new location mention
-            if ($hasNewLocation) {
-                // User explicitly mentioned a different location - this is a new search
-                $this->clearSearchState($conversation->id);
-                $isMoreRequest = false;
-            } else {
-                // It's a "more" request with no new location - use previous search state
-                $searchState = $this->getSearchState($conversation->id);
-                if (!$searchState) {
-                    // No previous search state found - can't do "more"
-                    $isMoreRequest = false;
-                } else {
-                    // Store the limit override for this "more" request
-                    if ($moreRequestLimit !== null) {
-                        $searchState['_more_request_limit'] = $moreRequestLimit;
-                    }
+            Log::info('More request detected', [
+                'conversation_id' => $conversation->id,
+                'user_message' => $userMessage,
+                'limit' => $moreRequestLimit,
+                'cached_location' => $cachedLocation
+            ]);
+        }
+        
+        if ($hasNewLocation) {
+            $this->clearSearchState($conversation->id);
+        }
+        
+        // For "more" requests, ensure we have location BEFORE processing
+        if ($isMoreRequest && !$hasNewLocation) {
+            // Try to get location from search state first
+            $searchState = $this->getSearchState($conversation->id);
+            if ($searchState && isset($searchState['search_params']['location'])) {
+                // We have search state with location - use it
+                if (!$cachedLocation) {
+                    $cachedLocation = $searchState['search_params']['location'];
+                    $this->setCachedLocation($conversation->id, $cachedLocation);
+                }
+                // Store the limit override for this "more" request
+                if ($moreRequestLimit !== null) {
+                    $searchState['_more_request_limit'] = $moreRequestLimit;
+                }
+            } elseif (!$cachedLocation) {
+                // No search state, but try to get from history
+                $tempHistory = DB::table('conversation_messages')
+                    ->where('conversation_id', $conversation->id)
+                    ->orderBy('created_at', 'desc')
+                    ->limit(30)
+                    ->get()
+                    ->map(fn($m) => ['role' => $m->role, 'content' => $m->content])
+                    ->toArray();
+                $tempHistory = array_reverse($tempHistory);
+                $lastLocation = $this->extractLocationFromHistory($tempHistory);
+                if ($lastLocation) {
+                    $cachedLocation = $lastLocation;
+                    $this->setCachedLocation($conversation->id, $cachedLocation);
                 }
             }
         } else {
-            // Not a "more" request - clear search state for new searches
-            // But only clear if there's actually a new location or it's a completely new query
-            if ($hasNewLocation) {
-                $this->clearSearchState($conversation->id);
-            } else {
-                // For regular queries, we'll store new search state after the search
-                // Don't clear here - let the new search create its own state
-            }
+            $searchState = null;
         }
 
         // Save user message
@@ -101,17 +143,12 @@ class ChatController extends Controller
             'created_at' => now(),
         ]);
 
-        // Get available tags, services, specializations, and categories
         $tags = $this->getDisplayTitles('tags');
         $specializations = $this->getDisplayTitles('specializations');
         $services = $this->getDisplayTitles('services');
         $categories = $this->getDisplayTitles('categories');
-
-        // Get unique areas from database (cached) - show all areas for intelligent matching
         $uniqueAreas = $this->getUniqueAreas();
-        $areas = !empty($uniqueAreas) ? implode(', ', $uniqueAreas) : ''; // Show all areas for better matching
-
-        // Load recent history and prepend system prompt (typo fixed)
+        $areas = !empty($uniqueAreas) ? implode(', ', $uniqueAreas) : '';
         $history = DB::table('conversation_messages')
             ->where('conversation_id', $conversation->id)
             ->orderBy('created_at', 'desc')
@@ -119,25 +156,19 @@ class ChatController extends Controller
             ->get()
             ->map(fn($m) => ['role' => $m->role, 'content' => $m->content])
             ->toArray();
-        // reverse the history
         $history = array_reverse($history);
 
-        //return response()->json($history);
-
-        // Build previous search info for "more" requests
         $previousSearchInfo = '';
         if ($isMoreRequest) {
-            // Try to get search state if not already retrieved
+            // Ensure we have search state
             if (!$searchState) {
                 $searchState = $this->getSearchState($conversation->id);
             }
             
-            // If we have search state, use it
+            // Priority 1: Use search state if available
             if ($searchState && isset($searchState['search_params'])) {
                 $prevParams = $searchState['search_params'];
-                $prevLocation = $prevParams['location'] ?? 'not specified';
-                
-                // Use the override limit if specified (e.g., "3 more", "10 more"), otherwise use original limit
+                $prevLocation = $prevParams['location'] ?? ($cachedLocation ?? 'not specified');
                 $limitToUse = $moreRequestLimit ?? ($prevParams['limit'] ?? 5);
                 
                 $additionalParams = [];
@@ -160,168 +191,185 @@ class ChatController extends Controller
                 $previousSearchInfo = "
                 
                 ═══════════════════════════════════════════════════════════════
-                PREVIOUS SEARCH PARAMETERS - USE THESE EXACTLY (DO NOT ASK QUESTIONS):
+                🚨 USER REQUESTED MORE RESULTS - MANDATORY ACTION REQUIRED
                 ═══════════════════════════════════════════════════════════════
-                The user is asking for MORE results from the previous search in \"{$prevLocation}\".
+                The user said \"more\" or \"find more\". This means they want MORE results from the PREVIOUS search.
                 
-                MANDATORY ACTION: Call findGarage IMMEDIATELY with these EXACT parameters:
-                - location: \"{$prevLocation}\" (MUST USE THIS - DO NOT ASK FOR LOCATION)
+                YOU MUST call findGarage IMMEDIATELY with these EXACT parameters:
+                - location: \"{$prevLocation}\" (USE THIS LOCATION - DO NOT ASK FOR IT)
                 - limit: {$limitToUse}{$limitNote}{$paramsList}
                 
-                CRITICAL RULES:
-                ❌ DO NOT ask for location - use \"{$prevLocation}\" from previous search
-                ❌ DO NOT ask any questions - just call findGarage immediately
-                ✅ Use the SAME location \"{$prevLocation}\" - it persists until user mentions a DIFFERENT location
-                ✅ Only change location if user explicitly says a different location name (e.g., \"in al shuaikh\", \"in hawalli\")
-                
-                The user said \"more\" or \"find more\" - this means they want MORE results from the SAME search in \"{$prevLocation}\".
-                ACTION REQUIRED: Call findGarage NOW with location=\"{$prevLocation}\". Do NOT ask questions.
+                CRITICAL: DO NOT ask \"Could you please provide the location\"
+                CRITICAL: DO NOT ask \"What location would you like to search in?\"
+                CRITICAL: DO NOT ask any questions - just call findGarage NOW
                 ═══════════════════════════════════════════════════════════════";
-            } elseif ($isMoreRequest) {
-                // Fallback: If search state is missing but it's a "more" request,
-                // extract location from conversation history and instruct AI to use it
+            } 
+            // Priority 2: Use cached location if available
+            elseif ($cachedLocation) {
+                $limitToUse = $moreRequestLimit ?? 5;
+                $previousSearchInfo = "
+                
+                ═══════════════════════════════════════════════════════════════
+                🚨 USER REQUESTED MORE RESULTS - MANDATORY ACTION REQUIRED
+                ═══════════════════════════════════════════════════════════════
+                The user said \"more\" or \"find more\". This means they want MORE results from the PREVIOUS search.
+                
+                CACHED LOCATION: \"{$cachedLocation}\"
+                This location was used in the previous search and is STILL ACTIVE.
+                
+                YOU MUST call findGarage IMMEDIATELY with:
+                - location: \"{$cachedLocation}\" (USE THIS - DO NOT ASK FOR IT)
+                - limit: {$limitToUse}
+                
+                CRITICAL: DO NOT ask \"Could you please provide the location\"
+                CRITICAL: DO NOT ask \"What location would you like to search in?\"
+                CRITICAL: DO NOT ask any questions - the location is already known. Just call findGarage NOW
+                ═══════════════════════════════════════════════════════════════";
+            } 
+            // Priority 3: Extract from history
+            else {
                 $lastLocation = $this->extractLocationFromHistory($history);
                 if ($lastLocation) {
                     $limitToUse = $moreRequestLimit ?? 5;
+                    // Cache it for future use
+                    $this->setCachedLocation($conversation->id, $lastLocation);
+                    $cachedLocation = $lastLocation;
+                    
                     $previousSearchInfo = "
                 
                 ═══════════════════════════════════════════════════════════════
-                USER REQUESTED MORE RESULTS - USE PREVIOUS LOCATION:
+                🚨 USER REQUESTED MORE RESULTS - MANDATORY ACTION REQUIRED
                 ═══════════════════════════════════════════════════════════════
-                The user said \"more\" or \"find more\" - they want MORE results from the PREVIOUS search.
+                The user said \"more\" or \"find more\". This means they want MORE results from the PREVIOUS search.
                 
-                Based on conversation history, the previous location was: \"{$lastLocation}\"
+                LOCATION FROM CONVERSATION HISTORY: \"{$lastLocation}\"
+                This location was mentioned in a previous message.
                 
-                MANDATORY ACTION: Call findGarage IMMEDIATELY with:
-                - location: \"{$lastLocation}\" (USE THIS - DO NOT ASK FOR LOCATION)
+                YOU MUST call findGarage IMMEDIATELY with:
+                - location: \"{$lastLocation}\" (USE THIS - DO NOT ASK FOR IT)
                 - limit: {$limitToUse}
                 
-                CRITICAL: Do NOT ask \"Could you please provide the location\". Use \"{$lastLocation}\" from the previous search.
+                CRITICAL: DO NOT ask \"Could you please provide the location\"
+                CRITICAL: DO NOT ask \"What location would you like to search in?\"
+                CRITICAL: DO NOT ask any questions - just call findGarage NOW
                 ═══════════════════════════════════════════════════════════════";
                 }
+            }
+        }
+
+        // Build location context for prompt - show cached location prominently
+        // For "more" requests, this is CRITICAL - show location even more prominently
+        $locationContext = '';
+        if ($cachedLocation) {
+            if ($isMoreRequest) {
+                // Extra emphasis for "more" requests
+                $locationContext = "
+                
+                ═══════════════════════════════════════════════════════════════
+                🚨🚨🚨 USER REQUESTED MORE - LOCATION IS CACHED 🚨🚨🚨
+                ═══════════════════════════════════════════════════════════════
+                CACHED LOCATION: \"{$cachedLocation}\"
+                
+                THE USER SAID \"MORE\" OR \"FIND MORE\" - THEY WANT MORE RESULTS FROM PREVIOUS SEARCH.
+                THE LOCATION \"{$cachedLocation}\" WAS USED IN THE PREVIOUS SEARCH.
+                
+                YOU MUST:
+                1. Call findGarage IMMEDIATELY with location: \"{$cachedLocation}\"
+                2. DO NOT ask for location - it's already cached
+                3. DO NOT ask any questions
+                4. Just call the function NOW
+                
+                ❌ FORBIDDEN: Asking \"Could you please provide the location\"
+                ❌ FORBIDDEN: Asking \"What location would you like to search in?\"
+                ❌ FORBIDDEN: Asking \"I need to know your location\"
+                
+                The location is \"{$cachedLocation}\". Use it. Call findGarage now.
+                ═══════════════════════════════════════════════════════════════";
+            } else {
+                $locationContext = "
+                
+                ═══════════════════════════════════════════════════════════════
+                🎯 ACTIVE CACHED LOCATION: \"{$cachedLocation}\"
+                ═══════════════════════════════════════════════════════════════
+                THIS LOCATION IS ALREADY CACHED FROM PREVIOUS REQUEST.
+                
+                CRITICAL RULES:
+                ✅ ALWAYS use \"{$cachedLocation}\" for ALL queries (including \"more\" requests)
+                ✅ When user says \"more\", \"find more\", \"show more\" → Use \"{$cachedLocation}\" IMMEDIATELY
+                ✅ When user asks for garages without location → Use \"{$cachedLocation}\" automatically
+                ✅ Location persists until user explicitly mentions a DIFFERENT location
+                
+                ❌ NEVER ask \"Could you please provide the location\"
+                ❌ NEVER ask \"What location would you like to search in?\"
+                ❌ NEVER ask for location when user says \"more\" or \"find more\"
+                
+                The location \"{$cachedLocation}\" is already known. Use it automatically.
+                ═══════════════════════════════════════════════════════════════";
             }
         }
 
         array_unshift($history, [
             'role' => 'system',
             'content' => "
-                You are a polite, human-like Garage Finder chatbot agent for the Kuwait Region.
-                Your job is to help people find a garage based on their needs. Always greet the user warmly but casually.
-                Be calm, concise, and human — usually reply in 1–2 lines, or rarely 3 short lines when it feels natural.
+                You are a polite, human-like Garage Finder chatbot for Kuwait. Be concise (1-2 lines, rarely 3).
+                {$locationContext}
 
-                You can use the following information to understand the user's intent and help find a garage:
-                - Available Areas/Locations in Kuwait: $areas
+                Available data:
+                - Areas: $areas
                 - Tags: $tags
                 - Specializations: $specializations
                 - Services: $services
                 - Categories: $categories
 
-                CRITICAL - INTELLIGENT AREA MATCHING:
-                When the user mentions a location or area, you MUST intelligently match it to one of the available areas listed above. This is crucial for finding garages.
-                
-                Matching rules:
-                1. Look for EXACT matches first (case-insensitive)
-                2. Look for PARTIAL matches - if user says \"shuaikh\" or \"shuaikh area\", match it to \"shuwaikh industrial\" or \"shuwaikh\" if those exist in the list
-                3. Handle spelling variations - \"shuaikh\" = \"shuwaikh\", \"salmiya\" = \"salmiyah\", etc.
-                4. Handle area suffixes - if user says \"hawalli\" and list has \"hawalli industrial\" or \"hawalli residential\", use the one that best matches
-                5. Handle common abbreviations and variations
-                6. If multiple matches exist (e.g., \"shuwaikh\" and \"shuwaikh industrial\"), prefer the more specific one if the user's request is specific, otherwise use the broader match
-                7. If you find a match (exact or partial), ALWAYS use the EXACT area name from the list above when calling findGarage function
-                8. Only use the user's exact wording if NO match can be found in the list above
-                
-                Examples:
-                - User: \"shuaikh area\" → Match to \"shuwaikh industrial\" or \"shuwaikh\" (if in list)
-                - User: \"salmiya\" → Match to \"salmiya\" or \"salmiyah\" (if in list)
-                - User: \"hawalli\" → Match to \"hawalli\", \"hawalli industrial\", or \"hawalli residential\" (whichever exists)
-                - User: \"kuwait city\" → Match to \"kuwait city\" or similar variation in list
+                AREA MATCHING: Match user locations to available areas (exact → partial → spelling variations). Use EXACT area name from list when calling findGarage.
 
-                CONTEXT AWARENESS - ABSOLUTE PRIORITY:
-                STEP 1: ALWAYS check conversation history FIRST before asking ANY question. Look at ALL previous user messages.
-                STEP 2: If location exists in conversation history OR current message → call findGarage IMMEDIATELY with that location.
-                STEP 3: Service filters are OPTIONAL. If user says \"any\", \"all services\", \"everything\", \"just tell me any garage\" → proceed WITHOUT service filter.
-                
-                CRITICAL DECISION TREE:
-                1. User provides NEW location (different from previous search) → This is a NEW search. Clear previous search state and call findGarage with new location.
-                2. User says \"any\", \"all services\", \"everything\" → Call findGarage with location from context, no service filter. Do NOT ask questions.
-                3. User says \"more\", \"find more\", \"show more\", \"3 more\", \"10 more\", etc. → Use previous search parameters (see PREVIOUS SEARCH PARAMETERS section if available). 
-                   - If user specifies a number (e.g., \"3 more\", \"show 10 more\"), extract that number and pass it as 'limit' parameter
-                   - Otherwise, use the previous limit or default to 5
-                   - Call findGarage immediately with SAME location and parameters. Do NOT ask questions.
-                4. Location missing AND not in history → Ask for location ONLY.
-                
-                PAGINATION RULES:
-                - When user says \"more\" or \"show more\" → Return next batch using SAME location and filters from previous search
-                - When user says \"3 more\" or \"10 more\" → Return that specific number using SAME location and filters
-                - Location persists until user explicitly mentions a DIFFERENT location (e.g., if last search was \"al ahmadi\" and user says \"more\", use \"al ahmadi\" again)
-                - Only start a NEW search when user explicitly mentions a different location
-                
-                MANDATORY RULES - NEVER VIOLATE:
+                LOCATION HANDLING:
+                " . ($cachedLocation ? "⚠️ CACHED LOCATION: \"{$cachedLocation}\" - Use this for ALL queries. Check conversation history for previous location mentions if needed." : "Check conversation history first. If location exists in history, use it automatically.") . "
+                - Service filters are OPTIONAL (\"any\" = no filter)
+                - Multiple locations: Handle \"both\" or multiple areas as needed
+
+                DECISION TREE FOR \"MORE\" REQUESTS:
+                When user says \"more\", \"find more\", \"show more\", \"3 more\", etc.:
+                1. If PREVIOUS SEARCH section exists above → Use those EXACT parameters (MANDATORY)
+                2. If cached location exists → Use cached location \"{$cachedLocation}\" (DO NOT ask)
+                3. If location in history → Use location from history (DO NOT ask)
+                4. Extract number if specified (\"3 more\" = limit 3)
+                5. Call findGarage IMMEDIATELY - DO NOT ask any questions
+
+                GENERAL DECISION TREE:
+                1. New location mentioned → New search, cache location
+                2. \"any\" / \"all services\" → Use cached/historical location, no service filter
+                3. Location missing but cached → Use cached location automatically
+                4. Location missing but in history → Use from history automatically
+                5. No location anywhere → Ask for location only
+
+                CRITICAL RULES - NEVER VIOLATE:
+                ❌ NEVER ask for location if cached (especially for \"more\" requests)
                 ❌ NEVER ask for location if it exists in conversation history
-                ❌ NEVER ask for service if user said \"any\", \"all services\", \"everything\"
-                ❌ NEVER ask questions when user says \"more\" or \"find more\"
-                ❌ NEVER ask for service when location is provided - service is optional
+                ❌ NEVER ask when user says \"more\", \"find more\", \"any\", or \"all services\"
+                ✅ ALWAYS use cached location \"{$cachedLocation}\" when available (especially for \"more\" requests)
                 ✅ ALWAYS use location from conversation history if available
-                ✅ ALWAYS proceed immediately when user provides valid responses like \"any\" or \"all services\"
-                ✅ ALWAYS call findGarage when you have location (from message OR history)
-                
-                EXAMPLES:
-                - User: \"find garages in al ahmadi\" → findGarage(location=\"al ahmadi\")
-                - User: \"find more\" → findGarage with previous parameters (no questions)
-                - User: \"al ahmadi\" → findGarage(location=\"al ahmadi\") immediately
-                - User: \"any\" (after location mentioned) → findGarage(location from context, no service filter)
-                - User: \"all services just tell me any garage\" → findGarage(location from context, no service filter)
-                
-                When the user describes a problem (e.g., 'my car's AC is not cooling'), intelligently map it to relevant tags, services, specializations, or categories, and pass them in the function call as arrays:
-                - 'selected_tags': inferred issue tags
-                - 'selected_specializations': relevant expertise or brand specialization
-                - 'selected_services': relevant garage services
-                - 'selected_categories': relevant garage category
-                
-                FUNCTION SELECTION - CRITICAL RULES:
-                - CRITICAL: You MUST use findExternalService (NOT findGarage) for the following services: petrol stations, gas stations, fuel stations, ATMs, restaurants, cafes, hotels, shopping malls, shopping centers, hospitals, clinics, pharmacies, parking lots, car rentals, car insurance companies, gyms, supermarkets, grocery stores, banks, or ANY other business/service that is NOT a garage/automotive repair shop. These services are NEVER in the garage database, so you MUST use findExternalService immediately when users ask for them.
-                - For garage-related queries ONLY: If the user asks for automotive repair services, car maintenance, vehicle services, or anything related to fixing/maintaining vehicles that matches the available database services/tags/categories/specializations, use the findGarage function.
-                - Examples: 
-                  * \"petrol station in Salmiya\" → MUST use findExternalService (NOT findGarage)
-                  * \"ATM near me\" → MUST use findExternalService (NOT findGarage)
-                  * \"restaurant in Kuwait City\" → MUST use findExternalService (NOT findGarage)
-                  * \"car AC repair in Hawalli\" → use findGarage (this is a garage service)
-                  * \"mechanic for Toyota\" → use findGarage (this is a garage service)
-                - For findExternalService: Location is ALWAYS REQUIRED. Always ask for location first if user doesn't provide it.
-                - The findExternalService function works ONLY for location-based services in Kuwait region - use it ONLY when a user asks for finding a specific location or business.
-                
+                ✅ ALWAYS call findGarage immediately when location is available (from cache, history, or message)
+
+                FUNCTION SELECTION:
+                - findExternalService: petrol stations, ATMs, restaurants, hotels, malls, hospitals, pharmacies, parking, car rentals, insurance, gyms, supermarkets, banks (NOT garages)
+                - findGarage: automotive repair, car maintenance, vehicle services
+                - For findExternalService: Location required, ask if missing
+
                 RESPONSE FORMATTING:
-                - CRITICAL: When garage results are found (via findGarage, listGarages, or getGarageDetails), your response MUST be EXTREMELY MINIMAL. DO NOT list any garage names, addresses, phone numbers, or any garage details in your message. DO NOT format garages as numbered lists. DO NOT include any garage information in your response. Simply say something brief like 'Here are the garages I found in [location]:' or 'Found these garages for you:' and STOP. The garage details are provided separately in a structured format, so you must NEVER include them in your message text. If you see garage results in the tool response, acknowledge with ONLY a brief confirmation sentence - nothing more.
-                - RESULT LIMIT: By default, findGarage returns 5 garages. If the user specifically asks for a number (e.g., \"3 garages\", \"10 garages\", \"show me 7 garages\"), you MUST extract that number and pass it as the 'limit' parameter. If the user doesn't specify a number, omit the 'limit' parameter to use the default of 5.
-                - PAGINATION - CRITICAL: When user asks for more (e.g., 'more', 'find more', 'show more', '3 more', '10 more', 'next'):
-                  * If PREVIOUS SEARCH PARAMETERS section exists above → Use those EXACT parameters immediately (MANDATORY)
-                  * If user specifies a number (e.g., \"3 more\", \"show 10 more\", \"find 7 more\"), extract that number and pass it as 'limit' parameter
-                  * If PREVIOUS SEARCH PARAMETERS section doesn't exist → Look at conversation history to find the MOST RECENT location mentioned
-                  * CRITICAL: The location from the previous search MUST be preserved. If user said \"find garages in salmiya\" and then \"find 7 more\", use \"salmiya\" again.
-                  * IMPORTANT: Use the SAME location from previous search. Do NOT ask for location again. Location persists until user explicitly mentions a DIFFERENT location.
-                  * Call findGarage IMMEDIATELY with those parameters (location from previous search, filters, and limit if specified)
-                  * DO NOT ask any questions - just call the function
-                  * Keep response minimal: \"Found these garages for you:\" or similar
-                  * NEVER ask \"Could you please provide the location\" when user says \"more\" - use the previous location
-                - NO RESULTS HANDLING: If no garages are found matching the user's criteria, politely inform them and ask if they would like to search in a different area. Example: \"I couldn't find any garages matching your criteria in [location]. Would you like to search in a different area?\"
-                - When displaying results from findExternalService, format them as a numbered list in this exact format (blank line after business name):
-                  1. [Business Name](google_maps_url) - Make the business name clickable as a link that opens Google Maps
-                  Address: Street name, Area
-                  Phone: +965 XXXX XXXX (omit Phone line entirely if phone is null or not available)
-    
-                  (Continue numbering for all results, each result on separate lines)
-                  IMPORTANT: Always format business names as markdown links using the format [Business Name](google_maps_url) where google_maps_url is provided in the results. This makes the business name clickable and opens Google Maps for that location.
-                - STRICT BOUNDARIES: You are ONLY a location finder chatbot for Kuwait. You MUST decline and politely redirect any queries that are NOT related to finding locations or businesses in Kuwait. This includes:
-                  * Jokes, humor, or entertainment requests
-                  * General knowledge questions
-                  * Weather, news, or current events
-                  * Personal advice or conversations
-                  * Non-location related queries of any kind
-                - When declining non-location queries, politely say: 'I'm a location finder chatbot for Kuwait. I can only help you find garages or other businesses and services in Kuwait. How can I help you find a location?'
+                - Garage results: Minimal response only (\"Here are garages in [location]:\" or \"Found these:\"). NO garage details in message.
+                - External service results: Numbered list with [Business Name](google_maps_url), Address, Phone (if available)
+                - No results: Politely suggest different area
+                - Default limit: 5 garages (extract number if user specifies)
+                - Garage deduplication: Automatic (already-shown garages won't appear again)
+
+                BOUNDARIES: Only location finding in Kuwait. Decline jokes, general knowledge, weather, news, personal advice.
+
+                PROBLEM MAPPING: Map user problems to tags/services/specializations/categories arrays.
+
                 {$previousSearchInfo}
                 "
         ]);
-
-        //return response()->json($history);
 
         $tools = [
             [
@@ -334,7 +382,7 @@ class ChatController extends Controller
                         'properties' => [
                             'location' => [
                                 'type' => 'string',
-                                'description' => 'REQUIRED: The location or area name where the user wants to find a garage. CRITICAL: You MUST intelligently match the user\'s location to one of the available areas listed in the system prompt. Handle spelling variations (e.g., "shuaikh" → "shuwaikh industrial"), partial matches, and area suffixes. Always use the EXACT area name from the available areas list when a match is found. Only use the user\'s exact wording if no match exists in the available areas list. Never call this function without a location.'
+                                'description' => 'REQUIRED: The location or area name where the user wants to find a garage. CRITICAL: If a cached location is shown in the system prompt, you MUST use that cached location (especially for "more" requests). If no cached location, intelligently match the user\'s location to one of the available areas listed in the system prompt. Handle spelling variations (e.g., "shuaikh" → "shuwaikh industrial"), partial matches, and area suffixes. Always use the EXACT area name from the available areas list when a match is found. Only use the user\'s exact wording if no match exists in the available areas list. Never call this function without a location - use cached location if available.'
                             ],
                             'vehicle_brand' => [
                                 'type' => 'string',
@@ -500,8 +548,6 @@ class ChatController extends Controller
 
         $tokensUsed = $response->usage->totalTokens ?? 0;
 
-        //return response()->json($response);
-
         // Extract latitude and longitude from tool results
         $latitude = null;
         $longitude = null;
@@ -624,8 +670,44 @@ class ChatController extends Controller
             // If garages were found, ensure the message is minimal
             $assistantText = $this->ensureMinimalGarageMessage($assistantText, $garagesData);
         } elseif (empty($garagesData)) {
-            // If no garages and not a "no_more_results" case, check if message incorrectly says garages were found
+            // Check if AI incorrectly asked for location when we have cached location
             $messageLower = strtolower($assistantText ?? '');
+            $locationRequestPhrases = [
+                'could you please provide the location',
+                'please provide the location',
+                'what location',
+                'which location',
+                'where would you like',
+                'please tell me the location',
+                'location?',
+                'need the location'
+            ];
+            
+            $isAskingForLocation = false;
+            foreach ($locationRequestPhrases as $phrase) {
+                if (strpos($messageLower, $phrase) !== false) {
+                    $isAskingForLocation = true;
+                    break;
+                }
+            }
+            
+            // If AI asked for location but we have cached location (especially for "more" requests), override
+            if ($isAskingForLocation && $cachedLocation) {
+                if ($isMoreRequest) {
+                    // For "more" requests, force call findGarage with cached location
+                    Log::warning('AI asked for location on "more" request despite cached location', [
+                        'conversation_id' => $conversation->id,
+                        'cached_location' => $cachedLocation,
+                        'ai_message' => $assistantText
+                    ]);
+                    // Don't override here - let it retry with stronger prompt, but log it
+                } else {
+                    // For regular requests, suggest using cached location
+                    $assistantText = "I'll search for garages in {$cachedLocation}.";
+                }
+            }
+            
+            // Check if message incorrectly says garages were found
             $garageFoundPhrases = [
                 'here are', 'found these', 'here are some', 'here are the',
                 'found garages', 'garages found', 'here are more'
@@ -660,11 +742,11 @@ class ChatController extends Controller
         ]);
     }
 
-    private function dispatchTool(string $name, array $args, ?array $searchState = null)
+    private function dispatchTool(string $name, array $args, ?array $searchState = null, ?int $conversationId = null)
     {
         switch ($name) {
             case 'findGarage':
-                return $this->toolFindGarage($args, $searchState);
+                return $this->toolFindGarage($args, $searchState, $conversationId);
             case 'listGarages':
                 return $this->toolListGarages($args);
             case 'getGarageDetails':
@@ -854,73 +936,6 @@ class ChatController extends Controller
     }
 
     /**
-     * Detect if user mentioned a new location (different from previous search)
-     * This should ONLY return true if there's an explicit location mention that's different from previous
-     */
-    private function detectNewLocation(string $message, int $conversationId): bool
-    {
-        // Get previous search state
-        $searchState = $this->getSearchState($conversationId);
-        
-        // If no previous search exists, we can't detect a "new" location
-        if (!$searchState || !isset($searchState['search_params']['location'])) {
-            return false;
-        }
-        
-        $previousLocation = strtolower(trim($searchState['search_params']['location']));
-        $messageLower = strtolower(trim($message));
-        
-        // If message is just "more", "find more", "show more", "2 more", etc. - it's NOT a new location
-        // First check for simple number + "more" pattern (e.g., "2 more", "10 more")
-        if (preg_match('/^(\d+)\s+more(?:\s+garages?)?$/i', $messageLower)) {
-            return false; // Definitely a "more" request, not a new location
-        }
-        
-        $moreKeywords = ['more', 'next', 'load more', 'show more', 'find more'];
-        $isJustMoreRequest = false;
-        foreach ($moreKeywords as $keyword) {
-            // Check if message is primarily a "more" request (with optional numbers)
-            if (preg_match('/^(?:\d+\s*)?(?:' . preg_quote($keyword, '/') . ')(?:\s+garages?)?$/i', $messageLower) ||
-                preg_match('/^(?:find|show|get|give|bring|fetch)\s+(?:\d+\s*)?(?:more|garages?|results?|options?)(?:\s+garages?)?$/i', $messageLower)) {
-                $isJustMoreRequest = true;
-                break;
-            }
-        }
-        
-        // If it's just a "more" request, it's NOT a new location
-        if ($isJustMoreRequest) {
-            return false;
-        }
-        
-        // Only check for explicit location mentions with "in", "at", "near"
-        $locationPatterns = [
-            '/\bin\s+([a-z\s]+?)(?:\s|$|,|\.)/i',
-            '/\bat\s+([a-z\s]+?)(?:\s|$|,|\.)/i',
-            '/\bnear\s+([a-z\s]+?)(?:\s|$|,|\.)/i'
-        ];
-        
-        foreach ($locationPatterns as $pattern) {
-            if (preg_match($pattern, $message, $matches)) {
-                $mentionedLocation = strtolower(trim($matches[1]));
-                // Remove common words that might be captured
-                $mentionedLocation = preg_replace('/\b(garages?|garage|find|search|for|a|the|in|at|near)\b/i', '', $mentionedLocation);
-                $mentionedLocation = trim($mentionedLocation);
-                
-                // If mentioned location is different from previous and not empty, it's a new location
-                if (!empty($mentionedLocation) && $mentionedLocation !== $previousLocation) {
-                    // Additional check: make sure it's not just a partial match
-                    if (strpos($previousLocation, $mentionedLocation) === false && 
-                        strpos($mentionedLocation, $previousLocation) === false) {
-                        return true;
-                    }
-                }
-            }
-        }
-        
-        return false;
-    }
-
-    /**
      * Extract location from conversation history (fallback when search state is missing)
      */
     private function extractLocationFromHistory(array $history): ?string
@@ -1022,8 +1037,11 @@ class ChatController extends Controller
         ]);
     }
 
-    private function toolFindGarage(array $args, ?array $searchState = null)
+    private function toolFindGarage(array $args, ?array $searchState = null, ?int $conversationId = null)
     {
+        // Get shown garage IDs to exclude them from results
+        $shownGarageIds = $conversationId ? $this->getShownGarageIds($conversationId) : [];
+        
         // If this is a "more" request and we have stored garages, return next batch
         if ($searchState && isset($searchState['all_garages']) && is_array($searchState['all_garages'])) {
             $allGarages = $searchState['all_garages'];
@@ -1040,8 +1058,17 @@ class ChatController extends Controller
                 $perPage = (int)$searchState['search_params']['limit'];
             }
             
-            // Get next batch
-            $nextBatch = array_slice($allGarages, $currentOffset, $perPage);
+            // Filter out already shown garages
+            $availableGarages = array_filter($allGarages, function($garage) use ($shownGarageIds) {
+                $garageId = is_array($garage) ? ($garage['id'] ?? null) : ($garage->id ?? null);
+                return $garageId && !in_array($garageId, $shownGarageIds);
+            });
+            
+            // Re-index array after filtering
+            $availableGarages = array_values($availableGarages);
+            
+            // Get next batch from available (non-shown) garages
+            $nextBatch = array_slice($availableGarages, $currentOffset, $perPage);
             
             if (empty($nextBatch)) {
                 // No more garages to show
@@ -1078,6 +1105,16 @@ class ChatController extends Controller
             ->where('is_available', true)
             ->where('country_id', 112) // Only show garages in Kuwait
             ->whereNull('deleted_at');
+
+        // Exclude already shown garage IDs
+        if (!empty($shownGarageIds)) {
+            $query->whereNotIn('id', $shownGarageIds);
+            Log::info('Excluding shown garage IDs from search', [
+                'conversation_id' => $conversationId,
+                'excluded_ids' => $shownGarageIds,
+                'excluded_count' => count($shownGarageIds)
+            ]);
+        }
 
         // Filter by location using smart area matching
         if ($location) {
@@ -1212,6 +1249,11 @@ class ChatController extends Controller
                         ->orWhere('address', 'like', "%{$location}%")
                         ->orWhere('governate', 'like', "%{$location}%");
                 });
+            
+            // Exclude already shown garage IDs from lenient search too
+            if (!empty($shownGarageIds)) {
+                $lenientQuery->whereNotIn('id', $shownGarageIds);
+            }
             
             // Apply other filters if they exist
             if (!empty($selectedTags)) {
@@ -2353,6 +2395,151 @@ Return ONLY the JSON object, no additional text or explanation.";
     }
 
     /**
+     * Extract location from user message
+     * Looks for patterns like "in [location]", "at [location]", "near [location]"
+     * 
+     * @param string $message User message
+     * @return string|null Extracted location or null if not found
+     */
+    private function extractLocationFromMessage(string $message): ?string
+    {
+        $messageLower = strtolower(trim($message));
+        
+        // Skip if it's just a "more" request without location
+        $moreKeywords = ['more', 'next', 'load more', 'show more', 'find more'];
+        $isJustMoreRequest = false;
+        foreach ($moreKeywords as $keyword) {
+            if (preg_match('/^(?:\d+\s*)?(?:' . preg_quote($keyword, '/') . ')(?:\s+garages?)?$/i', $messageLower) ||
+                preg_match('/^(?:find|show|get|give|bring|fetch)\s+(?:\d+\s*)?(?:more|garages?|results?|options?)(?:\s+garages?)?$/i', $messageLower)) {
+                $isJustMoreRequest = true;
+                break;
+            }
+        }
+        
+        if ($isJustMoreRequest) {
+            return null; // Don't extract location from "more" requests
+        }
+        
+        // Look for location patterns: "in [location]", "at [location]", "near [location]"
+        $locationPatterns = [
+            '/\bin\s+([a-z\s]+?)(?:\s|$|,|\.)/i',
+            '/\bat\s+([a-z\s]+?)(?:\s|$|,|\.)/i',
+            '/\bnear\s+([a-z\s]+?)(?:\s|$|,|\.)/i'
+        ];
+        
+        foreach ($locationPatterns as $pattern) {
+            if (preg_match($pattern, $message, $matches)) {
+                $location = trim($matches[1]);
+                // Remove common words that might be captured
+                $location = preg_replace('/\b(garages?|garage|find|search|for|a|the|in|at|near)\b/i', '', $location);
+                $location = trim($location);
+                
+                if (!empty($location) && strlen($location) > 2) {
+                    return $location;
+                }
+            }
+        }
+        
+        return null;
+    }
+
+    /**
+     * Get cached location for conversation
+     * 
+     * @param int $conversationId
+     * @return string|null Cached location or null if not cached
+     */
+    private function getCachedLocation(int $conversationId): ?string
+    {
+        return Cache::get('cached_location_' . $conversationId);
+    }
+
+    /**
+     * Set cached location for conversation
+     * Location persists until replaced by a new location
+     * 
+     * @param int $conversationId
+     * @param string $location Location to cache
+     * @return void
+     */
+    private function setCachedLocation(int $conversationId, string $location): void
+    {
+        // Cache location for 24 hours (or until replaced)
+        Cache::put('cached_location_' . $conversationId, $location, now()->addHours(24));
+        
+        Log::info('Location cached', [
+            'conversation_id' => $conversationId,
+            'location' => $location
+        ]);
+    }
+
+    /**
+     * Clear cached location for conversation
+     * 
+     * @param int $conversationId
+     * @return void
+     */
+    private function clearCachedLocation(int $conversationId): void
+    {
+        Cache::forget('cached_location_' . $conversationId);
+    }
+
+    /**
+     * Get shown garage IDs for conversation
+     * 
+     * @param int $conversationId
+     * @return array Array of garage IDs that have been shown
+     */
+    private function getShownGarageIds(int $conversationId): array
+    {
+        $cacheKey = 'shown_garage_ids_' . $conversationId;
+        $shownIds = Cache::get($cacheKey, []);
+        return is_array($shownIds) ? $shownIds : [];
+    }
+
+    /**
+     * Add garage IDs to shown list for conversation
+     * 
+     * @param int $conversationId
+     * @param array $garageIds Array of garage IDs to add
+     * @return void
+     */
+    private function addShownGarageIds(int $conversationId, array $garageIds): void
+    {
+        $cacheKey = 'shown_garage_ids_' . $conversationId;
+        $existingIds = $this->getShownGarageIds($conversationId);
+        $newIds = array_filter($garageIds, function($id) {
+            return is_numeric($id) && $id > 0;
+        });
+        $allIds = array_unique(array_merge($existingIds, $newIds));
+        
+        // Cache for 24 hours
+        Cache::put($cacheKey, $allIds, now()->addHours(24));
+        
+        Log::info('Added shown garage IDs', [
+            'conversation_id' => $conversationId,
+            'new_ids' => $newIds,
+            'total_shown' => count($allIds)
+        ]);
+    }
+
+    /**
+     * Clear shown garage IDs for conversation (when location changes)
+     * 
+     * @param int $conversationId
+     * @return void
+     */
+    private function clearShownGarageIds(int $conversationId): void
+    {
+        $cacheKey = 'shown_garage_ids_' . $conversationId;
+        Cache::forget($cacheKey);
+        
+        Log::info('Cleared shown garage IDs', [
+            'conversation_id' => $conversationId
+        ]);
+    }
+
+    /**
      * Process tool calls and extract data
      */
     private function processToolCalls(
@@ -2389,7 +2576,19 @@ Return ONLY the JSON object, no additional text or explanation.";
                 }
             }
             
-            $result = $this->dispatchTool($toolName, $args, $isMoreRequest ? $searchState : null);
+            // If location is missing from args but we have cached location, use it
+            if ($toolName === 'findGarage' && empty($args['location'])) {
+                $cachedLocation = $this->getCachedLocation($conversationId);
+                if ($cachedLocation) {
+                    $args['location'] = $cachedLocation;
+                    Log::info('Injected cached location into findGarage call', [
+                        'conversation_id' => $conversationId,
+                        'cached_location' => $cachedLocation
+                    ]);
+                }
+            }
+            
+            $result = $this->dispatchTool($toolName, $args, $isMoreRequest ? $searchState : null, $conversationId);
 
             // Track external service results
             if ($toolName === 'findExternalService' && is_array($result)) {
@@ -2407,6 +2606,12 @@ Return ONLY the JSON object, no additional text or explanation.";
                     $extractedGarages = $this->extractGarageDataFromToolResult($result, $toolName);
                     if (!empty($extractedGarages)) {
                         $garagesData = array_merge($garagesData, $extractedGarages);
+                        
+                        // Track shown garage IDs
+                        $garageIds = array_filter(array_column($extractedGarages, 'id'));
+                        if (!empty($garageIds)) {
+                            $this->addShownGarageIds($conversationId, $garageIds);
+                        }
                         
                         // Store search state for pagination
                         if ($toolName === 'findGarage' && isset($result['status']) && $result['status'] === 'success') {
@@ -2501,6 +2706,13 @@ Return ONLY the JSON object, no additional text or explanation.";
             }
             Cache::put('garage_search_state_' . $conversationId, $searchState, now()->addHour());
         } elseif (!$isMoreRequest && isset($result['_all_garages'])) {
+            // Ensure location is in args (use cached location if not provided)
+            if (empty($args['location'])) {
+                $cachedLocation = $this->getCachedLocation($conversationId);
+                if ($cachedLocation) {
+                    $args['location'] = $cachedLocation;
+                }
+            }
             $offset = $result['_offset'] ?? count($result['_all_garages']);
             $this->storeSearchState($conversationId, $args, $result['_all_garages'], $offset);
         }
