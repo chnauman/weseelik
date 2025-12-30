@@ -24,13 +24,59 @@ class GaragesController extends Controller
 {
     use MediaUploadingTrait;
 
-    public function index()
+    public function index(Request $request)
     {
         abort_if(Gate::denies('garage_access'), Response::HTTP_FORBIDDEN, '403 Forbidden');
 
-        $garages = Garage::with(['user', 'country', 'tags', 'languages', 'specializations', 'services', 'categories', 'media'])->get();
+        $query = Garage::with(['user', 'country', 'tags', 'languages', 'specializations', 'services', 'categories', 'media']);
 
-        return view('admin.garages.index', compact('garages'));
+        // Filter by status
+        if ($request->has('status') && $request->status !== '') {
+            $query->where('status', $request->status);
+        }
+
+        // Filter by location_verified
+        if ($request->has('location_verified') && $request->location_verified !== '') {
+            $query->where('location_verified', $request->location_verified);
+        }
+
+        // Filter by area
+        if ($request->has('area') && $request->area !== '') {
+            $query->where('area', $request->area);
+        }
+
+        // Filter by tags (multiple tags)
+        if ($request->has('tags') && is_array($request->tags) && count($request->tags) > 0) {
+            $tagIds = array_filter($request->tags);
+            if (count($tagIds) > 0) {
+                $query->whereHas('tags', function($q) use ($tagIds) {
+                    $q->whereIn('tags.id', $tagIds);
+                });
+            }
+        }
+
+        // Filter for verified garages (status = approved AND location_verified = verified)
+        if ($request->has('verified') && $request->verified == '1') {
+            $query->where('status', 'approved')
+                  ->where('location_verified', 'verified');
+        }
+
+        // Filter for unverified garages
+        if ($request->has('unverified') && $request->unverified == '1') {
+            $query->where(function($q) {
+                $q->where('status', '!=', 'approved')
+                  ->orWhere('location_verified', '!=', 'verified')
+                  ->orWhereNull('location_verified');
+            });
+        }
+
+        $garages = $query->get();
+
+        // Get filter options for the view
+        $tags = Tag::pluck('title', 'id');
+        $areas = Garage::select('area')->distinct()->whereNotNull('area')->where('area', '!=', '')->pluck('area')->filter()->values();
+
+        return view('admin.garages.index', compact('garages', 'tags', 'areas'));
     }
 
     public function create()

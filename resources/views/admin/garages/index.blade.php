@@ -17,9 +17,71 @@
 <div class="card">
     <div class="card-header">
         {{ trans('cruds.garage.title_singular') }} {{ trans('global.list') }}
+        @if(request()->hasAny(['status', 'location_verified', 'area', 'tags', 'verified', 'unverified']))
+            <a href="{{ route('admin.garages.index') }}" class="btn btn-sm btn-secondary float-right">Clear Filters</a>
+        @endif
     </div>
 
     <div class="card-body">
+        {{-- Filter Section --}}
+        <div class="row mb-3">
+            <div class="col-md-12">
+                <div class="card bg-light">
+                    <div class="card-body">
+                        <h6 class="card-title">Filters</h6>
+                        <form method="GET" action="{{ route('admin.garages.index') }}" id="filterForm">
+                            <div class="row">
+                                <div class="col-md-3">
+                                    <label for="status">Status</label>
+                                    <select name="status" id="status" class="form-control form-control-sm">
+                                        <option value="">All</option>
+                                        <option value="pending" {{ request('status') == 'pending' ? 'selected' : '' }}>Pending</option>
+                                        <option value="approved" {{ request('status') == 'approved' ? 'selected' : '' }}>Approved</option>
+                                    </select>
+                                </div>
+                                <div class="col-md-3">
+                                    <label for="location_verified">Location Verified</label>
+                                    <select name="location_verified" id="location_verified" class="form-control form-control-sm">
+                                        <option value="">All</option>
+                                        <option value="verified" {{ request('location_verified') == 'verified' ? 'selected' : '' }}>Verified</option>
+                                        <option value="human_verification_required" {{ request('location_verified') == 'human_verification_required' ? 'selected' : '' }}>Human Verification Required</option>
+                                        <option value="unverified" {{ request('location_verified') == 'unverified' ? 'selected' : '' }}>Unverified</option>
+                                    </select>
+                                </div>
+                                <div class="col-md-3">
+                                    <label for="area">Area</label>
+                                    <select name="area" id="area" class="form-control form-control-sm">
+                                        <option value="">All</option>
+                                        @foreach($areas ?? [] as $area)
+                                            <option value="{{ $area }}" {{ request('area') == $area ? 'selected' : '' }}>{{ $area }}</option>
+                                        @endforeach
+                                    </select>
+                                </div>
+                                <div class="col-md-3">
+                                    <label for="tags">Tags</label>
+                                    <select name="tags[]" id="tags" class="form-control form-control-sm" multiple>
+                                        @foreach($tags ?? [] as $tagId => $tagTitle)
+                                            <option value="{{ $tagId }}" {{ in_array($tagId, (array)request('tags', [])) ? 'selected' : '' }}>{{ $tagTitle }}</option>
+                                        @endforeach
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="row mt-2">
+                                <div class="col-md-12">
+                                    <button type="submit" class="btn btn-sm btn-primary">Apply Filters</button>
+                                    <a href="{{ route('admin.garages.index') }}" class="btn btn-sm btn-secondary">Reset</a>
+                                    @if(request()->hasAny(['status', 'location_verified', 'area', 'tags', 'verified', 'unverified']))
+                                        <span class="badge badge-info ml-2">
+                                            {{ $garages->count() }} garage(s) found
+                                        </span>
+                                    @endif
+                                </div>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </div>
         <div class="table-responsive">
             <table class=" table table-bordered table-striped table-hover datatable datatable-Garage">
                 <thead>
@@ -155,6 +217,12 @@
 <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
 <script>
     $(function () {
+        // Initialize Select2 for tags
+        $('#tags').select2({
+            placeholder: 'Select tags',
+            allowClear: true,
+            width: '100%'
+        });
   let dtButtons = $.extend(true, [], $.fn.dataTable.defaults.buttons)
 @can('garage_delete')
   let deleteButtonTrans = '{{ trans('global.datatables.delete') }}'

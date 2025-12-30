@@ -12,9 +12,45 @@
 <div class="card">
     <div class="card-header">
         {{ trans('cruds.user.title_singular') }} {{ trans('global.list') }}
+        @if(request()->has('type'))
+            <a href="{{ route('admin.users.index') }}" class="btn btn-sm btn-secondary float-right">Clear Filters</a>
+        @endif
     </div>
 
     <div class="card-body">
+        {{-- Filter Section --}}
+        @if(request()->has('type'))
+        <div class="row mb-3">
+            <div class="col-md-12">
+                <div class="card bg-light">
+                    <div class="card-body">
+                        <h6 class="card-title">Filters</h6>
+                        <form method="GET" action="{{ route('admin.users.index') }}" id="filterForm">
+                            <div class="row">
+                                <div class="col-md-3">
+                                    <label for="type">User Type</label>
+                                    <select name="type" id="type" class="form-control form-control-sm">
+                                        <option value="">All</option>
+                                        <option value="client" {{ request('type') == 'client' ? 'selected' : '' }}>Client</option>
+                                        <option value="business" {{ request('type') == 'business' ? 'selected' : '' }}>Business</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="row mt-2">
+                                <div class="col-md-12">
+                                    <button type="submit" class="btn btn-sm btn-primary">Apply Filters</button>
+                                    <a href="{{ route('admin.users.index') }}" class="btn btn-sm btn-secondary">Reset</a>
+                                    <span class="badge badge-info ml-2">
+                                        {{ $users->count() }} user(s) found
+                                    </span>
+                                </div>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </div>
+        @endif
         <div class="table-responsive">
             <table class=" table table-bordered table-striped table-hover datatable datatable-User">
                 <thead>
