@@ -181,38 +181,8 @@
                 <div class="card-header">
                     <h5>Area Distribution Details</h5>
                 </div>
-                <div class="card-body">
-                    <div class="table-responsive">
-                        <table class="table table-bordered table-striped">
-                        <thead>
-                            <tr>
-                                <th>Area</th>
-                                    <th>Total Garages</th>
-                                    <th>Percentage</th>
-                                    <th>Action</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                                @forelse($garagesByAreaPaginated as $area)
-                                    <tr>
-                                        <td>{{ $area->area ?? 'N/A' }}</td>
-                                        <td>{{ $area->total }}</td>
-                                        <td>{{ $area->percentage }}%</td>
-                                        <td>
-                                            <a href="{{ route('admin.garages.index', ['area' => $area->area]) }}" class="btn btn-sm btn-primary">View Garages</a>
-                                        </td>
-                                    </tr>
-                                @empty
-                                    <tr>
-                                        <td colspan="4" class="text-center">No data available</td>
-                                </tr>
-                                @endforelse
-                        </tbody>
-                    </table>
-                    </div>
-                    <div class="mt-3 d-flex justify-content-center">
-                        {{ $garagesByAreaPaginated->links('pagination.default') }}
-                    </div>
+                <div class="card-body" id="area-distribution-content">
+                    @include('partials.area-distribution-table', ['garagesByAreaPaginated' => $garagesByAreaPaginated])
                 </div>
             </div>
         </div>
@@ -472,6 +442,59 @@ function resetTagFilter() {
     $('#tagSelector').val(null).trigger('change');
     document.getElementById('tagCountDisplay').textContent = {{ $totalGarages }};
 }
+
+// AJAX Pagination for Area Distribution
+$(document).ready(function() {
+    // Intercept pagination clicks
+    $(document).on('click', '#area-pagination-container .pagination a', function(e) {
+        e.preventDefault();
+        
+        var url = $(this).attr('href');
+        if (!url) return;
+        
+        // Show loading state
+        var $container = $('#area-distribution-content');
+        $container.addClass('loading');
+        
+        // Add loading spinner
+        var $loading = $('<div class="text-center p-3" style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 10;"><i class="fa fa-spinner fa-spin fa-2x text-primary"></i></div>');
+        $container.append($loading);
+        
+        // Make AJAX request
+        $.ajax({
+            url: url + (url.indexOf('?') > -1 ? '&' : '?') + 'area_pagination=1',
+            type: 'GET',
+            dataType: 'json',
+            headers: {
+                'X-Requested-With': 'XMLHttpRequest'
+            },
+            success: function(response) {
+                // Update the content
+                $container.html(response.html);
+                
+                // Update URL without reload
+                if (window.history && window.history.pushState) {
+                    window.history.pushState({}, '', url);
+                }
+                
+                // Scroll to top of the table
+                $('html, body').animate({
+                    scrollTop: $('#area-distribution-content').offset().top - 100
+                }, 300);
+            },
+            error: function(xhr, status, error) {
+                console.error('Error loading pagination:', error);
+                alert('Error loading page. Please try again.');
+                $container.removeClass('loading');
+                $loading.remove();
+            },
+            complete: function() {
+                $container.removeClass('loading');
+                $loading.remove();
+            }
+        });
+    });
+});
 </script>
 @endsection
 
@@ -585,6 +608,14 @@ function resetTagFilter() {
 }
 .select2-container .select2-selection--multiple .select2-selection__rendered {
     padding: 0;
+}
+#area-distribution-content {
+    transition: opacity 0.3s ease;
+    position: relative;
+}
+#area-distribution-content.loading {
+    opacity: 0.6;
+    pointer-events: none;
 }
 .chart-container {
     min-height: 400px;

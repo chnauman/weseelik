@@ -34,20 +34,132 @@ class ChatController extends Controller
         $temperature = env('OPENAI_TEMPERATURE', 0.7);
         
         // Resolve or create conversation (supports guests via session id)
-        $conversation = "";
+        $conversation = null;
+        $sessionId = $validated['conversation_id'] ?? null;
         
-        if (!empty($validated['conversation_id'])) {
-            $conversation = DB::table('conversations')->where('session_id', $validated['conversation_id'])->first();
+        // CRITICAL: Look up conversation by session_id if provided
+        if (!empty($sessionId)) {
+            // First, try to find by session_id
+            $conversation = DB::table('conversations')->where('session_id', $sessionId)->first();
+            
+            // If not found by session_id, check if sessionId is actually a database ID
+            // This handles cases where frontend sends database ID instead of session_id
+            if (!$conversation && is_numeric($sessionId)) {
+                $conversation = DB::table('conversations')->where('id', (int)$sessionId)->first();
+                
+                if ($conversation) {
+                    // Capture previous session_id before updating
+                    $previousSessionId = $conversation->session_id;
+                    
+                    // Only update session_id if it's null or empty
+                    // This preserves existing session_ids while fixing cases where it was never set
+                    if (empty($conversation->session_id)) {
+                        DB::table('conversations')
+                            ->where('id', $conversation->id)
+                            ->update([
+                                'session_id' => $sessionId,
+                                'updated_at' => now()
+                            ]);
+                        
+                        // Refresh conversation object
+                        $conversation = DB::table('conversations')->where('id', $conversation->id)->first();
+                        
+                        Log::info('Found conversation by database ID and updated session_id', [
+                            'conversation_id' => $conversation->id,
+                            'session_id' => $sessionId,
+                            'previous_session_id' => $previousSessionId
+                        ]);
+                    } else {
+                        Log::info('Found conversation by database ID (session_id already set)', [
+                            'conversation_id' => $conversation->id,
+                            'requested_session_id' => $sessionId,
+                            'existing_session_id' => $conversation->session_id
+                        ]);
+                    }
+                }
+            }
+            
+            // Log lookup result for debugging
+            if ($conversation) {
+                Log::info('Found existing conversation', [
+                    'conversation_id' => $conversation->id,
+                    'session_id' => $sessionId,
+                    'db_session_id' => $conversation->session_id
+                ]);
+            } else {
+                Log::warning('No conversation found for session_id - this may cause cache mismatch!', [
+                    'session_id' => $sessionId,
+                    'user_id' => auth()->id()
+                ]);
+                
+                // CRITICAL FIX: If session_id lookup fails, try to find most recent conversation for this user
+                // This prevents creating a new conversation when session_id changes but user is the same
+                if (auth()->id()) {
+                    $recentConversation = DB::table('conversations')
+                        ->where('user_id', auth()->id())
+                        ->orderBy('updated_at', 'desc')
+                        ->orderBy('created_at', 'desc')
+                        ->first();
+                    
+                    if ($recentConversation) {
+                        // Update the session_id to match the current request
+                        DB::table('conversations')
+                            ->where('id', $recentConversation->id)
+                            ->update([
+                                'session_id' => $sessionId,
+                                'updated_at' => now()
+                            ]);
+                        
+                        $conversation = DB::table('conversations')->where('id', $recentConversation->id)->first();
+                        
+                        Log::info('Reused recent conversation and updated session_id', [
+                            'conversation_id' => $conversation->id,
+                            'session_id' => $sessionId
+                        ]);
+                    }
+                }
+            }
         }
+        
+        // Create new conversation if not found
         if (!$conversation) {
             $conversationId = DB::table('conversations')->insertGetId([
                 'user_id' => auth()->id(),
-                'session_id' => $validated['conversation_id'], //session()->getId(),
+                'session_id' => $sessionId, // Use the provided session_id or null
                 'title' => null,
                 'created_at' => now(),
                 'updated_at' => now(),
             ]);
             $conversation = DB::table('conversations')->where('id', $conversationId)->first();
+            
+            Log::info('Created new conversation', [
+                'conversation_id' => $conversation->id,
+                'session_id' => $sessionId
+            ]);
+        }
+        
+        // Check if this is a "both" request
+        $isBothRequest = $this->isBothRequest($userMessage);
+        $bothLocations = [];
+        
+        if ($isBothRequest) {
+            // Get history before saving current message to extract recent locations
+            $tempHistory = DB::table('conversation_messages')
+                ->where('conversation_id', $conversation->id)
+                ->orderBy('created_at', 'desc')
+                ->limit(30)
+                ->get()
+                ->map(fn($m) => ['role' => $m->role, 'content' => $m->content])
+                ->toArray();
+            $tempHistory = array_reverse($tempHistory);
+            
+            $bothLocations = $this->extractRecentLocationsFromHistory($tempHistory);
+            
+            Log::info('Both request detected', [
+                'conversation_id' => $conversation->id,
+                'extracted_locations' => $bothLocations,
+                'count' => count($bothLocations)
+            ]);
         }
         
         $extractedLocation = $this->extractLocationFromMessage($userMessage);
@@ -56,13 +168,24 @@ class ChatController extends Controller
         
         // If location extracted from message, cache it
         if ($extractedLocation) {
+            $extractedLocationNormalized = strtolower(trim($extractedLocation));
             if ($cachedLocation) {
+                $cachedLocationNormalized = strtolower(trim($cachedLocation));
                 // Compare extracted location with cached location (case-insensitive)
-                if (strtolower(trim($extractedLocation)) !== strtolower(trim($cachedLocation))) {
+                if ($extractedLocationNormalized !== $cachedLocationNormalized) {
                     $hasNewLocation = true;
-                    // Location changed - clear shown garage IDs for fresh search
+                    // Location changed - clear shown garage IDs and search state for fresh search
                     $this->clearShownGarageIds($conversation->id);
+                    $this->clearSearchState($conversation->id);
+                    Log::info('Location changed - cleared search state and shown garage IDs', [
+                        'conversation_id' => $conversation->id,
+                        'old_location' => $cachedLocation,
+                        'new_location' => $extractedLocation
+                    ]);
                 }
+            } else {
+                // First location - no need to clear, but log it
+                $hasNewLocation = true; // Treat as new location for first time
             }
             // Cache the location (replaces previous if different)
             $this->setCachedLocation($conversation->id, $extractedLocation);
@@ -84,6 +207,7 @@ class ChatController extends Controller
         $moreRequestResult = $this->isMoreRequest($userMessage);
         $isMoreRequest = $moreRequestResult['isMore'];
         $moreRequestLimit = $moreRequestResult['limit'] ?? null;
+        $moreRequestLocation = $moreRequestResult['location'] ?? null; // Location-specific "more" request
         
         // Log "more" request detection
         if ($isMoreRequest) {
@@ -91,12 +215,14 @@ class ChatController extends Controller
                 'conversation_id' => $conversation->id,
                 'user_message' => $userMessage,
                 'limit' => $moreRequestLimit,
+                'target_location' => $moreRequestLocation,
                 'cached_location' => $cachedLocation
             ]);
         }
         
         if ($hasNewLocation) {
             $this->clearSearchState($conversation->id);
+            $this->clearShownGarageIds($conversation->id);
         }
         
         // For "more" requests, ensure we have location BEFORE processing
@@ -112,9 +238,12 @@ class ChatController extends Controller
                 // Store the limit override for this "more" request
                 if ($moreRequestLimit !== null) {
                     $searchState['_more_request_limit'] = $moreRequestLimit;
+                    // Save to cache immediately so it's available when tool is called
+                    Cache::put('garage_search_state_' . $conversation->id, $searchState, now()->addHour());
                 }
             } elseif (!$cachedLocation) {
-                // No search state, but try to get from history
+                // No search state, but try to get from history (BEFORE saving current message)
+                // Get history excluding the current message we're about to save
                 $tempHistory = DB::table('conversation_messages')
                     ->where('conversation_id', $conversation->id)
                     ->orderBy('created_at', 'desc')
@@ -123,10 +252,36 @@ class ChatController extends Controller
                     ->map(fn($m) => ['role' => $m->role, 'content' => $m->content])
                     ->toArray();
                 $tempHistory = array_reverse($tempHistory);
+                
+                // Try multiple extraction methods
                 $lastLocation = $this->extractLocationFromHistory($tempHistory);
+                
+                // Also try to extract from recent assistant messages that might mention location
+                if (!$lastLocation) {
+                    foreach (array_reverse($tempHistory) as $msg) {
+                        if ($msg['role'] === 'assistant') {
+                            $content = strtolower($msg['content'] ?? '');
+                            // Look for "in [location]" pattern in assistant responses
+                            if (preg_match('/\bin\s+([a-z]+(?:iya|ah|ah))\b/i', $content, $matches)) {
+                                $lastLocation = trim($matches[1]);
+                                break;
+                            }
+                        }
+                    }
+                }
+                
                 if ($lastLocation) {
                     $cachedLocation = $lastLocation;
                     $this->setCachedLocation($conversation->id, $cachedLocation);
+                    Log::info('Extracted location from history for "more" request', [
+                        'conversation_id' => $conversation->id,
+                        'extracted_location' => $lastLocation
+                    ]);
+                } else {
+                    Log::warning('Could not extract location from history for "more" request', [
+                        'conversation_id' => $conversation->id,
+                        'history_count' => count($tempHistory)
+                    ]);
                 }
             }
         } else {
@@ -321,12 +476,29 @@ class ChatController extends Controller
                 - Services: $services
                 - Categories: $categories
 
+                CONVERSATION HISTORY CONTEXT:
+                You have access to the full conversation history above. USE IT to understand context:
+                - If user says \"more\" or \"show more\", look at previous messages to find the location they searched for
+                - Previous assistant messages often mention locations (e.g., \"Here are garages in Dasma\")
+                - Previous user messages contain location requests (e.g., \"find garages in Dasma\", \"show 3 garages in Dasma\")
+                - ALWAYS use the location from the most recent garage search in the conversation
+                
                 AREA MATCHING: Match user locations to available areas (exact → partial → spelling variations). Use EXACT area name from list when calling findGarage.
 
                 LOCATION HANDLING:
-                " . ($cachedLocation ? "⚠️ CACHED LOCATION: \"{$cachedLocation}\" - Use this for ALL queries. Check conversation history for previous location mentions if needed." : "Check conversation history first. If location exists in history, use it automatically.") . "
+                " . ($cachedLocation ? "⚠️ CACHED LOCATION: \"{$cachedLocation}\" - Use this for ALL queries. This location was used in a previous search." : "CRITICAL: Check conversation history above. Look for location mentions in previous messages. If you see a location like 'Dasma', 'Salmiya', etc. in the history, use it automatically.") . "
                 - Service filters are OPTIONAL (\"any\" = no filter)
                 - Multiple locations: Handle \"both\" or multiple areas as needed
+                
+                " . ($isBothRequest && count($bothLocations) >= 2 ? "🚨 BOTH REQUEST DETECTED 🚨
+                The user said \"both\" or \"both locations\". They want garages from BOTH of these recent locations:
+                1. \"{$bothLocations[0]}\"
+                2. \"{$bothLocations[1]}\"
+                
+                YOU MUST call findGarage with location parameter containing BOTH locations separated by comma or as an array.
+                Format: location: \"{$bothLocations[0]}, {$bothLocations[1]}\" OR use multiple findGarage calls (one for each location).
+                DO NOT ask for clarification - use these two locations from the conversation history.
+                ═══════════════════════════════════════════════════════════════" : "") . "
 
                 DECISION TREE FOR \"MORE\" REQUESTS:
                 When user says \"more\", \"find more\", \"show more\", \"3 more\", etc.:
@@ -382,7 +554,7 @@ class ChatController extends Controller
                         'properties' => [
                             'location' => [
                                 'type' => 'string',
-                                'description' => 'REQUIRED: The location or area name where the user wants to find a garage. CRITICAL: If a cached location is shown in the system prompt, you MUST use that cached location (especially for "more" requests). If no cached location, intelligently match the user\'s location to one of the available areas listed in the system prompt. Handle spelling variations (e.g., "shuaikh" → "shuwaikh industrial"), partial matches, and area suffixes. Always use the EXACT area name from the available areas list when a match is found. Only use the user\'s exact wording if no match exists in the available areas list. Never call this function without a location - use cached location if available.'
+                                'description' => 'REQUIRED: The location or area name where the user wants to find a garage. For multiple locations (e.g., when user says "both"), you can provide comma-separated locations like "Dasma, Ahmadi" or call the function multiple times (once for each location). CRITICAL: If a cached location is shown in the system prompt, you MUST use that cached location (especially for "more" requests). If user says "both" or "both locations", check the conversation history for the two most recent locations mentioned and use both of them. If no cached location, intelligently match the user\'s location to one of the available areas listed in the system prompt. Handle spelling variations (e.g., "shuaikh" → "shuwaikh industrial"), partial matches, and area suffixes. Always use the EXACT area name from the available areas list when a match is found. Only use the user\'s exact wording if no match exists in the available areas list. Never call this function without a location - use cached location if available.'
                             ],
                             'vehicle_brand' => [
                                 'type' => 'string',
@@ -531,15 +703,39 @@ class ChatController extends Controller
             ]
         ];
         
-        
-
-        $response = OpenAI::chat()->create([
-            'model' => $model,
-            'messages' => $history,
-            'temperature' => $temperature,
-            'tools' => $tools,
-            "tool_choice" => "auto"
-        ]);
+        try {
+            $response = OpenAI::chat()->create([
+                'model' => $model,
+                'messages' => $history,
+                'temperature' => $temperature,
+                'tools' => $tools,
+                "tool_choice" => "auto"
+            ]);
+        } catch (\Exception $e) {
+            Log::error('OpenAI API error in handleChat', [
+                'conversation_id' => $conversation->id,
+                'error' => $e->getMessage(),
+                'error_type' => get_class($e)
+            ]);
+            
+            // Save error message to conversation
+            DB::table('conversation_messages')->insert([
+                'conversation_id' => $conversation->id,
+                'role' => 'assistant',
+                'content' => 'Sorry, I\'m experiencing connectivity issues. Please check your internet connection and try again in a moment.',
+                'model' => $model,
+                'tokens_used' => null,
+                'created_at' => now(),
+            ]);
+            
+            // Return error response
+            return response()->json([
+                'id' => $conversation->id,
+                'message' => 'Sorry, I\'m experiencing connectivity issues. Please check your internet connection and try again in a moment.',
+                'conversation_id' => request()->conversation_id,
+                'error' => true,
+            ], 500);
+        }
 
         // Handle tool calls if present
         $assistantText = $response->choices[0]->message->content ?? '';
@@ -584,6 +780,7 @@ class ChatController extends Controller
                 $history,
                 $conversation->id,
                 $isMoreRequest,
+                $moreRequestLocation, // Pass location-specific "more" request location
                 $searchState,
                 $garagesData,
                 $hasExternalServiceResults,
@@ -601,16 +798,36 @@ class ChatController extends Controller
             $tokensUsed += $processResult['tokensUsed'];
 
             // Follow-up call to get the final assistant answer
-            $second = OpenAI::chat()->create([
-                'model' => $model,
-                'messages' => $history,
-                'temperature' => $temperature,
-                'tools' => $tools,
-                'tool_choice' => 'auto',
-            ]);
+            try {
+                $second = OpenAI::chat()->create([
+                    'model' => $model,
+                    'messages' => $history,
+                    'temperature' => $temperature,
+                    'tools' => $tools,
+                    'tool_choice' => 'auto',
+                ]);
 
-            $assistantText = $second->choices[0]->message->content ?? '';
-            $tokensUsed += $second->usage->totalTokens ?? 0;
+                $assistantText = $second->choices[0]->message->content ?? '';
+                $tokensUsed += $second->usage->totalTokens ?? 0;
+            } catch (\Exception $e) {
+                Log::error('OpenAI API error in second call', [
+                    'conversation_id' => $conversation->id,
+                    'error' => $e->getMessage(),
+                    'error_type' => get_class($e)
+                ]);
+                
+                // If we have garage data, use it; otherwise try to provide helpful error
+                if (!empty($garagesData)) {
+                    $assistantText = !empty($assistantText) ? $assistantText : 'Here are the garages I found.';
+                } else {
+                    // For "more" requests, provide more specific error
+                    if ($isMoreRequest) {
+                        $assistantText = 'I couldn\'t find more garages. This might be because the previous search location wasn\'t found. Please try asking for garages in a specific location again.';
+                    } else {
+                        $assistantText = 'Sorry, I encountered an issue while processing your request. Please try again.';
+                    }
+                }
+            }
             
             // Update message based on results
             $assistantText = $this->updateAssistantMessage($assistantText, $noMoreResults, $garagesData);
@@ -625,6 +842,7 @@ class ChatController extends Controller
                     $history,
                     $conversation->id,
                     $isMoreRequest,
+                    $moreRequestLocation, // Pass location-specific "more" request location
                     $searchState,
                     $garagesData,
                     $hasExternalServiceResults,
@@ -642,16 +860,36 @@ class ChatController extends Controller
                 $tokensUsed += $processResult['tokensUsed'];
                 
                 // If there were tool calls, make one more call to get final response
-                $third = OpenAI::chat()->create([
-                    'model' => $model,
-                    'messages' => $history,
-                    'temperature' => $temperature,
-                    'tools' => $tools,
-                    'tool_choice' => 'auto',
-                ]);
-                
-                $assistantText = $third->choices[0]->message->content ?? '';
-                $tokensUsed += $third->usage->totalTokens ?? 0;
+                try {
+                    $third = OpenAI::chat()->create([
+                        'model' => $model,
+                        'messages' => $history,
+                        'temperature' => $temperature,
+                        'tools' => $tools,
+                        'tool_choice' => 'auto',
+                    ]);
+                    
+                    $assistantText = $third->choices[0]->message->content ?? '';
+                    $tokensUsed += $third->usage->totalTokens ?? 0;
+                } catch (\Exception $e) {
+                    Log::error('OpenAI API error in third call', [
+                        'conversation_id' => $conversation->id,
+                        'error' => $e->getMessage(),
+                        'error_type' => get_class($e)
+                    ]);
+                    
+                    // If we have garage data, use it; otherwise try to provide helpful error
+                    if (!empty($garagesData)) {
+                        $assistantText = !empty($assistantText) ? $assistantText : 'Here are the garages I found.';
+                    } else {
+                        // For "more" requests, provide more specific error
+                        if ($isMoreRequest) {
+                            $assistantText = 'I couldn\'t find more garages. This might be because the previous search location wasn\'t found. Please try asking for garages in a specific location again.';
+                        } else {
+                            $assistantText = 'Sorry, I encountered an issue while processing your request. Please try again.';
+                        }
+                    }
+                }
                 
                 // Update message based on results
                 $assistantText = $this->updateAssistantMessage($assistantText, $noMoreResults, $garagesData);
@@ -665,7 +903,7 @@ class ChatController extends Controller
             // Don't apply garage-specific message overrides
         } elseif ($noMoreResults && empty($garagesData)) {
             // Override AI message with the correct "no more results" message
-            $assistantText = 'All matching garages for your search have been provided to you.';
+            $assistantText = 'You have reached all available garages for this search. All matching results have been provided to you.';
         } elseif (!empty($garagesData)) {
             // If garages were found, ensure the message is minimal
             $assistantText = $this->ensureMinimalGarageMessage($assistantText, $garagesData);
@@ -731,10 +969,14 @@ class ChatController extends Controller
             'created_at' => now(),
         ]);
 
+        // CRITICAL: Return the session_id (not database ID) so frontend can use it for next request
+        // But also return the database ID for reference
+        $returnConversationId = $conversation->session_id ?? $conversation->id;
+        
         return response()->json([
             'id' => $conversation->id,
             'message' => $assistantText,
-            'conversation_id' => request()->conversation_id,
+            'conversation_id' => $returnConversationId, // Return session_id so frontend can reuse it
             'latitude' => $latitude,
             'longitude' => $longitude,
             'garage' => !empty($garagesData) ? $garagesData : null,
@@ -937,25 +1179,60 @@ class ChatController extends Controller
 
     /**
      * Extract location from conversation history (fallback when search state is missing)
+     * Looks at both user and assistant messages to find location mentions
      */
     private function extractLocationFromHistory(array $history): ?string
     {
         // Look through history in reverse (most recent first) to find location mentions
         $historyReversed = array_reverse($history);
         
+        // First, try to find location in user messages
         foreach ($historyReversed as $message) {
             if ($message['role'] === 'user') {
-                $content = strtolower($message['content'] ?? '');
+                $content = $message['content'] ?? '';
                 
-                // Look for location patterns: "in [location]", "at [location]", etc.
-                if (preg_match('/\b(?:in|at|near)\s+([a-z\s]+?)(?:\s|$|,|\.)/i', $content, $matches)) {
+                // Look for location patterns: "in [location]", "at [location]", "near [location]", "find garages in [location]"
+                $patterns = [
+                    '/\b(?:find|show|get|search|look\s+for)\s+(?:garages?|garage)\s+(?:in|at|near)\s+([a-z\s]+?)(?:\s|$|,|\.)/i',
+                    '/\b(?:in|at|near)\s+([a-z\s]+?)(?:\s|$|,|\.)/i',
+                    '/\b([a-z]+(?:iya|iya|ah|ah|ah|ah))\b/i', // Common Kuwait area suffixes
+                ];
+                
+                foreach ($patterns as $pattern) {
+                    if (preg_match($pattern, $content, $matches)) {
+                        $location = trim($matches[1]);
+                        // Remove common words
+                        $location = preg_replace('/\b(garages?|garage|find|search|for|a|the|in|at|near|show|get|look)\b/i', '', $location);
+                        $location = trim($location);
+                        
+                        if (!empty($location) && strlen($location) > 2) {
+                            // Validate it's a reasonable location name (not just a word)
+                            if (strlen($location) >= 3 && !in_array(strtolower($location), ['the', 'and', 'for', 'are', 'was', 'you', 'can', 'may'])) {
+                                return $location;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        // Second, try to find location in assistant messages (they often mention location in responses)
+        foreach ($historyReversed as $message) {
+            if ($message['role'] === 'assistant') {
+                $content = $message['content'] ?? '';
+                
+                // Look for patterns like "in [location]", "garages in [location]"
+                if (preg_match('/\b(?:garages?|garage|found|search|results?)\s+(?:in|at|near)\s+([A-Za-z\s]+?)(?:\s|$|,|\.|:)/i', $content, $matches)) {
                     $location = trim($matches[1]);
                     // Remove common words
-                    $location = preg_replace('/\b(garages?|garage|find|search|for|a|the|in|at|near)\b/i', '', $location);
+                    $location = preg_replace('/\b(garages?|garage|found|search|results?|the|in|at|near)\b/i', '', $location);
                     $location = trim($location);
                     
                     if (!empty($location) && strlen($location) > 2) {
-                        return $location;
+                        // Validate it's a reasonable location name
+                        if (strlen($location) >= 3 && !in_array(strtolower($location), ['the', 'and', 'for', 'are', 'was', 'you', 'can', 'may'])) {
+                            return $location;
+                        }
                     }
                 }
             }
@@ -966,18 +1243,55 @@ class ChatController extends Controller
 
     /**
      * Check if the user message is a "more" request and extract number if specified
-     * Returns array with 'isMore' boolean and optional 'limit' number
+     * Also detects location-specific "more" requests (e.g., "more for Dasma")
+     * Returns array with 'isMore' boolean, optional 'limit' number, and optional 'location' string
      */
     private function isMoreRequest(string $message): array
     {
         $messageLower = strtolower(trim($message));
+        
+        // Check for location-specific "more" requests (e.g., "more for Dasma", "more in Ahmadi")
+        $locationSpecificPatterns = [
+            '/more\s+(?:for|in|at|near)\s+([a-z\s]+?)(?:\s|$|,|\.)/i',
+            '/(\d+)\s+more\s+(?:for|in|at|near)\s+([a-z\s]+?)(?:\s|$|,|\.)/i',
+        ];
+        
+        $targetLocation = null;
+        $limit = null;
+        
+        foreach ($locationSpecificPatterns as $pattern) {
+            if (preg_match($pattern, $message, $matches)) {
+                if (count($matches) === 2) {
+                    // Pattern: "more for Dasma"
+                    $targetLocation = trim($matches[1]);
+                    // Remove common words
+                    $targetLocation = preg_replace('/\b(garages?|garage|find|search|for|a|the|in|at|near|both|locations?|areas?|places?)\b/i', '', $targetLocation);
+                    $targetLocation = trim($targetLocation);
+                } elseif (count($matches) === 3) {
+                    // Pattern: "3 more for Dasma"
+                    $limit = (int)$matches[1];
+                    $targetLocation = trim($matches[2]);
+                    $targetLocation = preg_replace('/\b(garages?|garage|find|search|for|a|the|in|at|near|both|locations?|areas?|places?)\b/i', '', $targetLocation);
+                    $targetLocation = trim($targetLocation);
+                }
+                
+                if (!empty($targetLocation) && strlen($targetLocation) > 2) {
+                    return [
+                        'isMore' => true,
+                        'limit' => $limit,
+                        'location' => $targetLocation
+                    ];
+                }
+            }
+        }
         
         // First, check for number + "more" pattern (e.g., "2 more", "10 more", "3 more garages")
         // This catches simple patterns like "2 more" that might not match keyword list
         if (preg_match('/^(\d+)\s+more/i', $messageLower, $matches)) {
             return [
                 'isMore' => true,
-                'limit' => (int)$matches[1]
+                'limit' => (int)$matches[1],
+                'location' => null
             ];
         }
         
@@ -996,7 +1310,6 @@ class ChatController extends Controller
         }
         
         // Extract number from messages like "3 more", "10 more", "show 5 more", etc.
-        $limit = null;
         if ($isMore) {
             // Pattern to match numbers before "more" keywords
             // Matches: "3 more", "10 more", "show 5 more garages", "give me 7 more", etc.
@@ -1007,15 +1320,22 @@ class ChatController extends Controller
         
         return [
             'isMore' => $isMore,
-            'limit' => $limit
+            'limit' => $limit,
+            'location' => null
         ];
     }
 
     /**
      * Store search state for pagination - stores ALL garages and tracks offset
      */
-    private function storeSearchState(int $conversationId, array $searchParams, array $allGarages, int $offset = 0): void
-    {
+    private function storeSearchState(
+        int $conversationId, 
+        array $searchParams, 
+        array $allGarages, 
+        int $offset = 0,
+        bool $multipleLocations = false,
+        ?array $locations = null
+    ): void {
         $cacheKey = 'garage_search_state_' . $conversationId;
         
         // Store search state with ALL garages and current offset
@@ -1026,6 +1346,8 @@ class ChatController extends Controller
             'total_count' => count($allGarages),
             'current_offset' => $offset, // Track how many have been shown
             'last_updated' => now()->toDateTimeString(),
+            '_multiple_locations' => $multipleLocations, // Flag for multiple locations
+            '_locations' => $locations, // Array of locations for multiple location searches
         ];
         
         Cache::put($cacheKey, $state, now()->addHour());
@@ -1033,8 +1355,215 @@ class ChatController extends Controller
         Log::info('Storing search state with all garages', [
             'conversation_id' => $conversationId,
             'total_garages' => count($allGarages),
-            'current_offset' => $offset
+            'current_offset' => $offset,
+            'multiple_locations' => $multipleLocations,
+            'locations' => $locations
         ]);
+    }
+
+    /**
+     * Search garages for a single location
+     * Helper method used when searching multiple locations separately
+     * 
+     * @param string $location Single location to search
+     * @param array $filters Search filters (tags, services, etc.)
+     * @param array $excludedIds Garage IDs to exclude
+     * @param int|null $limit Maximum number of garages to return (null = no limit)
+     * @return array Array of garage data
+     */
+    private function searchGaragesForLocation(
+        string $location,
+        array $filters = [],
+        array $excludedIds = [],
+        ?int $limit = null
+    ): array {
+        $selectedTags = $filters['selected_tags'] ?? [];
+        $selectedServices = $filters['selected_services'] ?? [];
+        $selectedSpecializations = $filters['selected_specializations'] ?? [];
+        $selectedCategories = $filters['selected_categories'] ?? [];
+        
+        // Match areas for this location
+        $matchedAreas = $this->matchAreasFromUserRequest($location);
+        
+        // Kuwait country ID is 112
+        $query = Garage::query()
+            ->where('status', 'approved')
+            ->where('is_available', true)
+            ->where('country_id', 112)
+            ->whereNull('deleted_at');
+        
+        // Exclude already shown garage IDs
+        if (!empty($excludedIds)) {
+            $excludedIds = array_map('intval', array_filter($excludedIds, function($id) {
+                return is_numeric($id) && $id > 0;
+            }));
+            if (!empty($excludedIds)) {
+                $query->whereNotIn('id', $excludedIds);
+            }
+        }
+        
+        // Filter by location using smart area matching
+        if (!empty($matchedAreas)) {
+            $query->where(function ($q) use ($matchedAreas) {
+                $firstArea = true;
+                foreach ($matchedAreas as $matchedArea) {
+                    if ($firstArea) {
+                        $q->where('area', $matchedArea);
+                        $firstArea = false;
+                    } else {
+                        $q->orWhere('area', $matchedArea);
+                    }
+                }
+            });
+        } else {
+            // Fallback: try exact match first, then LIKE
+            $query->where(function ($q) use ($location) {
+                $q->where('area', $location)
+                    ->orWhere('city', $location)
+                    ->orWhere('governate', $location)
+                    ->orWhere(function ($subQ) use ($location) {
+                        $subQ->where('area', 'like', "%{$location}%")
+                            ->orWhere('city', 'like', "%{$location}%")
+                            ->orWhere('governate', 'like', "%{$location}%");
+                    });
+            });
+        }
+        
+        // Apply filters
+        if (!empty($selectedTags)) {
+            $query->whereHas('tags', function ($q) use ($selectedTags) {
+                $q->where(function ($subQ) use ($selectedTags) {
+                    foreach ($selectedTags as $tag) {
+                        $subQ->orWhere('title', 'like', "%{$tag}%")
+                            ->orWhere('english_title', 'like', "%{$tag}%");
+                    }
+                })->whereNull('tags.deleted_at');
+            });
+        }
+        
+        if (!empty($selectedServices)) {
+            $query->whereHas('services', function ($q) use ($selectedServices) {
+                $q->where(function ($subQ) use ($selectedServices) {
+                    foreach ($selectedServices as $service) {
+                        $subQ->orWhere('title', 'like', "%{$service}%")
+                            ->orWhere('english_title', 'like', "%{$service}%");
+                    }
+                })->whereNull('services.deleted_at');
+            });
+        }
+        
+        if (!empty($selectedSpecializations)) {
+            $query->whereHas('specializations', function ($q) use ($selectedSpecializations) {
+                $q->where(function ($subQ) use ($selectedSpecializations) {
+                    foreach ($selectedSpecializations as $specialization) {
+                        $subQ->orWhere('title', 'like', "%{$specialization}%")
+                            ->orWhere('english_title', 'like', "%{$specialization}%");
+                    }
+                })->whereNull('specializations.deleted_at');
+            });
+        }
+        
+        if (!empty($selectedCategories)) {
+            $query->whereHas('categories', function ($q) use ($selectedCategories) {
+                $q->where(function ($subQ) use ($selectedCategories) {
+                    foreach ($selectedCategories as $category) {
+                        $subQ->orWhere('title', 'like', "%{$category}%")
+                            ->orWhere('english_title', 'like', "%{$category}%");
+                    }
+                })->whereNull('categories.deleted_at');
+            });
+        }
+        
+        // Fetch garages
+        $garages = $query->with(['tags', 'services', 'specializations', 'categories'])
+            ->orderBy('rating', 'desc')
+            ->orderBy('no_of_visits', 'desc')
+            ->get();
+        
+        // Filter to ensure location matches exactly
+        $locationNormalized = strtolower(trim($location));
+        $matchedAreasNormalized = array_map(function($area) {
+            return strtolower(trim($area));
+        }, $matchedAreas);
+        
+        $garages = $garages->filter(function($garage) use ($matchedAreasNormalized, $locationNormalized) {
+            $garageArea = strtolower(trim($garage->area ?? ''));
+            $garageCity = strtolower(trim($garage->city ?? ''));
+            $garageGovernate = strtolower(trim($garage->governate ?? ''));
+            
+            if (!empty($matchedAreasNormalized)) {
+                foreach ($matchedAreasNormalized as $matchedArea) {
+                    if ($garageArea === $matchedArea || 
+                        $garageCity === $matchedArea || 
+                        $garageGovernate === $matchedArea) {
+                        return true;
+                    }
+                }
+                return false;
+            }
+            
+            return ($garageArea === $locationNormalized || 
+                    $garageCity === $locationNormalized || 
+                    $garageGovernate === $locationNormalized ||
+                    strpos($garageArea, $locationNormalized) !== false ||
+                    strpos($garageCity, $locationNormalized) !== false ||
+                    strpos($garageGovernate, $locationNormalized) !== false);
+        });
+        
+        // Format garages
+        $geocodingApiKey = env('GOOGLE_MAPS_API_KEY');
+        $results = $garages->map(function ($garage, $index) use ($geocodingApiKey) {
+            $lat = $garage->latitude;
+            $lng = $garage->longitude;
+            
+            if ($index === 0 && ($lat === null || $lat === '' || $lng === null || $lng === '') && $geocodingApiKey) {
+                $addressToGeocode = null;
+                if ($garage->address) {
+                    $addressToGeocode = $garage->address;
+                    if ($garage->area) {
+                        $addressToGeocode .= ', ' . $garage->area;
+                    }
+                    if ($garage->city) {
+                        $addressToGeocode .= ', ' . $garage->city;
+                    }
+                    $addressToGeocode .= ', Kuwait';
+                    
+                    $geocodeResult = $this->geocodeLocation($addressToGeocode, $geocodingApiKey);
+                    if ($geocodeResult && isset($geocodeResult['lat']) && isset($geocodeResult['lng'])) {
+                        $lat = $geocodeResult['lat'];
+                        $lng = $geocodeResult['lng'];
+                    }
+                }
+            }
+            
+            return [
+                'id' => $garage->id,
+                'title' => $this->getPreferredValue($garage->title, $garage->title_ar),
+                'description' => $this->getPreferredValue($garage->description, $garage->description_ar),
+                'address' => $garage->address,
+                'area' => $garage->area,
+                'city' => $garage->city,
+                'contact_no' => $garage->contact_no,
+                'rating' => $garage->rating,
+                'no_of_visits' => $garage->no_of_visits,
+                'home_service' => $garage->home_service ?? false,
+                'pickup_service' => $garage->pickup_service ?? false,
+                'maps_share_link' => $garage->maps_share_link,
+                'image' => $garage->getFirstMediaUrl('logo') ?: $garage->getFirstMediaUrl('storefront_image'),
+                'latitude' => $lat !== null && $lat !== '' ? (is_numeric($lat) ? (float)$lat : $lat) : null,
+                'longitude' => $lng !== null && $lng !== '' ? (is_numeric($lng) ? (float)$lng : $lng) : null,
+                'services' => $garage->services->map(fn($s) => $s->english_title ?? $s->title)->toArray(),
+                'tags' => $garage->tags->map(fn($t) => $t->english_title ?? $t->title)->toArray(),
+                'specializations' => $garage->specializations->map(fn($sp) => $sp->english_title ?? $sp->title)->toArray(),
+            ];
+        })->toArray();
+        
+        // Apply limit if specified
+        if ($limit !== null && $limit > 0) {
+            $results = array_slice($results, 0, $limit);
+        }
+        
+        return $results;
     }
 
     private function toolFindGarage(array $args, ?array $searchState = null, ?int $conversationId = null)
@@ -1042,55 +1571,284 @@ class ChatController extends Controller
         // Get shown garage IDs to exclude them from results
         $shownGarageIds = $conversationId ? $this->getShownGarageIds($conversationId) : [];
         
+        // CRITICAL DEBUG: Log shown garage IDs at the start
+        if ($conversationId) {
+            Log::info('toolFindGarage called', [
+                'conversation_id' => $conversationId,
+                'has_search_state' => $searchState !== null,
+                'shown_garage_ids' => $shownGarageIds,
+                'shown_garage_ids_count' => count($shownGarageIds),
+                'request_location' => $args['location'] ?? null
+            ]);
+        }
+        
+        // Get cached location to ensure strict location matching
+        $cachedLocation = $conversationId ? $this->getCachedLocation($conversationId) : null;
+        $requestLocation = $args['location'] ?? null;
+        
+        // CRITICAL: If search state is not provided but we have a conversation ID, try to retrieve it
+        // This is a fallback in case search state wasn't passed correctly
+        if (!$searchState && $conversationId) {
+            $searchState = $this->getSearchState($conversationId);
+            if ($searchState) {
+                Log::info('Retrieved search state as fallback in toolFindGarage', [
+                    'conversation_id' => $conversationId,
+                    'has_all_garages' => isset($searchState['all_garages']),
+                    'garage_count' => isset($searchState['all_garages']) ? count($searchState['all_garages']) : 0
+                ]);
+            }
+        }
+        
+        // CRITICAL: Check if search state has multiple locations flag (defined early for use in conditions)
+        $hasMultipleLocationsInState = $searchState && isset($searchState['_multiple_locations']) && $searchState['_multiple_locations'];
+        
         // If this is a "more" request and we have stored garages, return next batch
-        if ($searchState && isset($searchState['all_garages']) && is_array($searchState['all_garages'])) {
-            $allGarages = $searchState['all_garages'];
-            $currentOffset = $searchState['current_offset'] ?? 0;
+        // CRITICAL: Skip single-location handler if we have multiple locations in search state
+        // (multiple locations handler already processed it above)
+        if ($searchState && isset($searchState['all_garages']) && is_array($searchState['all_garages']) && 
+            !$hasMultipleLocationsInState) {
+            // CRITICAL: For "more" requests, ALWAYS use search state location (already forced in processToolCalls)
+            // Trust that the location was forced correctly - don't re-validate here to avoid issues
+            $cachedSearchLocation = $searchState['search_params']['location'] ?? null;
             
-            // Determine how many to return:
-            // 1. Use _more_request_limit if specified (e.g., "3 more", "10 more")
-            // 2. Otherwise use the original limit from search_params
-            // 3. Default to 5 if neither exists
-            $perPage = 5; // Default
-            if (isset($searchState['_more_request_limit']) && $searchState['_more_request_limit'] > 0) {
-                $perPage = (int)$searchState['_more_request_limit'];
-            } elseif (isset($searchState['search_params']['limit']) && $searchState['search_params']['limit'] > 0) {
-                $perPage = (int)$searchState['search_params']['limit'];
-            }
-            
-            // Filter out already shown garages
-            $availableGarages = array_filter($allGarages, function($garage) use ($shownGarageIds) {
-                $garageId = is_array($garage) ? ($garage['id'] ?? null) : ($garage->id ?? null);
-                return $garageId && !in_array($garageId, $shownGarageIds);
-            });
-            
-            // Re-index array after filtering
-            $availableGarages = array_values($availableGarages);
-            
-            // Get next batch from available (non-shown) garages
-            $nextBatch = array_slice($availableGarages, $currentOffset, $perPage);
-            
-            if (empty($nextBatch)) {
-                // No more garages to show
+            // If we have a search state location, use it (it was already forced in processToolCalls)
+            if ($cachedSearchLocation) {
+                // Ensure request location matches (it should, since we forced it)
+                $normalizedSearch = strtolower(trim($cachedSearchLocation));
+                $normalizedRequest = $requestLocation ? strtolower(trim($requestLocation)) : null;
+                
+                // If request location doesn't match search state, log warning but proceed with search state location
+                if ($normalizedRequest && $normalizedRequest !== $normalizedSearch) {
+                    Log::warning('Location mismatch detected in toolFindGarage - using search state location', [
+                        'conversation_id' => $conversationId,
+                        'search_state_location' => $cachedSearchLocation,
+                        'request_location' => $requestLocation
+                    ]);
+                    // Override request location with search state location
+                    $requestLocation = $cachedSearchLocation;
+                }
+                
+                // Proceed with pagination using search state
+                $allGarages = $searchState['all_garages'];
+                $currentOffset = $searchState['current_offset'] ?? 0;
+                
+                // CRITICAL: Filter out already-shown garage IDs from paginated results
+                // This prevents showing duplicates if user asks for "more" multiple times
+                // Normalize shown IDs to integers for proper comparison
+                $shownGarageIdsNormalized = array_map('intval', $shownGarageIds);
+                $availableGarages = array_filter($allGarages, function($garage) use ($shownGarageIdsNormalized) {
+                    $garageId = isset($garage['id']) ? (int)$garage['id'] : null;
+                    return $garageId && $garageId > 0 && !in_array($garageId, $shownGarageIdsNormalized, true);
+                });
+                
+                // Re-index array after filtering
+                $availableGarages = array_values($availableGarages);
+                
+                // CRITICAL DEBUG: Log detailed filtering information
+                $sampleGarageIdsInState = array_slice(array_column($allGarages, 'id'), 0, 10);
+                $sampleAvailableIds = array_slice(array_column($availableGarages, 'id'), 0, 10);
+                
+                Log::info('Processing "more" request with pagination', [
+                    'conversation_id' => $conversationId,
+                    'location' => $cachedSearchLocation,
+                    'total_garages_in_state' => count($allGarages),
+                    'available_after_filtering' => count($availableGarages),
+                    'current_offset' => $currentOffset,
+                    'shown_garage_ids_count' => count($shownGarageIds),
+                    'shown_garage_ids' => $shownGarageIdsNormalized,
+                    'sample_garage_ids_in_state' => $sampleGarageIdsInState,
+                    'sample_available_ids' => $sampleAvailableIds,
+                    'filtering_worked' => count($availableGarages) < count($allGarages) || count($shownGarageIds) === 0
+                ]);
+                
+                // Determine how many to return:
+                // 1. Use _more_request_limit if specified (e.g., "3 more", "10 more")
+                // 2. Otherwise use the original limit from search_params
+                // 3. Default to 5 if neither exists
+                $perPage = 5; // Default
+                if (isset($searchState['_more_request_limit']) && $searchState['_more_request_limit'] > 0) {
+                    $perPage = (int)$searchState['_more_request_limit'];
+                    Log::info('Using _more_request_limit for pagination', [
+                        'conversation_id' => $conversationId,
+                        'requested_limit' => $perPage,
+                        'current_offset' => $currentOffset,
+                        'available_garages' => count($availableGarages)
+                    ]);
+                } elseif (isset($searchState['search_params']['limit']) && $searchState['search_params']['limit'] > 0) {
+                    $perPage = (int)$searchState['search_params']['limit'];
+                }
+                
+                // CRITICAL: After filtering out shown garages, we need to use offset 0 on the filtered array
+                // because the filtered array only contains garages that haven't been shown yet
+                // The current_offset tracks how many have been shown from the original array,
+                // but after filtering, we start from the beginning of the filtered array
+                $nextBatch = array_slice($availableGarages, 0, $perPage);
+                
+                // CRITICAL DEBUG: Log what we're about to return
+                Log::info('About to return batch for "more" request', [
+                    'conversation_id' => $conversationId,
+                    'per_page_requested' => $perPage,
+                    'available_count' => count($availableGarages),
+                    'returning_count' => count($nextBatch),
+                    'returning_garage_ids' => array_column($nextBatch, 'id')
+                ]);
+                
+                if (empty($nextBatch)) {
+                    // No more garages to show - all results have been provided
+                    return [
+                        'status' => 'no_more_results',
+                        'message' => 'You have reached all available garages for this search. All matching results have been provided to you.',
+                        'results' => [],
+                    ];
+                }
+                
+                // If user requested a specific number (e.g., "2 more") but fewer are available, return what's available
+                // This handles cases like "10 more" when only 7 are left
+                $actualCount = count($nextBatch);
+                
+                // Verify all garages in batch are from the correct location (safety check)
+                $cachedSearchLocationNormalized = $cachedSearchLocation ? strtolower(trim($cachedSearchLocation)) : null;
+                $filteredBatch = [];
+                foreach ($nextBatch as $garage) {
+                    $garageArea = isset($garage['area']) ? strtolower(trim($garage['area'])) : '';
+                    $garageCity = isset($garage['city']) ? strtolower(trim($garage['city'])) : '';
+                    $garageGovernate = isset($garage['governate']) ? strtolower(trim($garage['governate'])) : '';
+                    
+                    // Only include garage if it matches the location
+                    if ($cachedSearchLocationNormalized && 
+                        ($garageArea === $cachedSearchLocationNormalized || 
+                         $garageCity === $cachedSearchLocationNormalized || 
+                         $garageGovernate === $cachedSearchLocationNormalized ||
+                         strpos($garageArea, $cachedSearchLocationNormalized) !== false ||
+                         strpos($garageCity, $cachedSearchLocationNormalized) !== false ||
+                         strpos($garageGovernate, $cachedSearchLocationNormalized) !== false)) {
+                        $filteredBatch[] = $garage;
+                    } elseif (!$cachedSearchLocationNormalized) {
+                        // If no location specified, include all (shouldn't happen in "more" requests)
+                        $filteredBatch[] = $garage;
+                    }
+                }
+                
+                // If filtering removed garages, log it
+                if (count($filteredBatch) < count($nextBatch)) {
+                    Log::warning('Filtered out garages from wrong location in "more" request', [
+                        'conversation_id' => $conversationId,
+                        'original_count' => count($nextBatch),
+                        'filtered_count' => count($filteredBatch),
+                        'location' => $cachedSearchLocation
+                    ]);
+                }
+                
+                if (empty($filteredBatch)) {
+                    return [
+                        'status' => 'no_more_results',
+                        'message' => 'You have reached all available garages for this search. All matching results have been provided to you.',
+                        'results' => [],
+                    ];
+                }
+                
+                // Return result with offset info for cache update
+                // Since we filtered out shown IDs and started from index 0 of filtered array,
+                // we need to update offset to reflect total shown from original array
+                // The offset should track total shown, so we add the count of what we're returning
+                $newOffset = $currentOffset + count($filteredBatch);
+                
+                Log::info('Returning paginated results for "more" request', [
+                    'conversation_id' => $conversationId,
+                    'location' => $cachedSearchLocation,
+                    'returning_count' => count($filteredBatch),
+                    'old_offset' => $currentOffset,
+                    'new_offset' => $newOffset,
+                    'shown_garage_ids' => $shownGarageIdsNormalized,
+                    'returned_garage_ids' => array_column($filteredBatch, 'id')
+                ]);
+                
                 return [
-                    'status' => 'no_more_results',
-                    'message' => 'All matching garages for your search have been provided to you.',
-                    'results' => [],
+                    'status' => 'success',
+                    'action' => 'find_garage',
+                    'count' => count($filteredBatch),
+                    'results' => $filteredBatch,
+                    '_new_offset' => $newOffset, // For cache update
                 ];
+            } else {
+                // We have search state but no location - this shouldn't happen for "more" requests
+                // But if it does, log it and fall through to new search
+                Log::warning('Search state exists but no location found - falling back to new search', [
+                    'conversation_id' => $conversationId,
+                    'search_state_keys' => array_keys($searchState ?? [])
+                ]);
             }
-            
-            // Return result with offset info for cache update
-            return [
-                'status' => 'success',
-                'action' => 'find_garage',
-                'count' => count($nextBatch),
-                'results' => $nextBatch,
-                '_new_offset' => $currentOffset + count($nextBatch), // For cache update
-            ];
+        }
+        
+        // CRITICAL FIX: If search state wasn't passed but exists in cache, retrieve and use it
+        // This handles cases where search state wasn't properly passed to the function
+        if (!$searchState && $conversationId) {
+            $retrievedSearchState = $this->getSearchState($conversationId);
+            if ($retrievedSearchState && isset($retrievedSearchState['all_garages']) && is_array($retrievedSearchState['all_garages'])) {
+                $cachedSearchLocation = $retrievedSearchState['search_params']['location'] ?? null;
+                $requestLocationNormalized = $requestLocation ? strtolower(trim($requestLocation)) : null;
+                $stateLocationNormalized = $cachedSearchLocation ? strtolower(trim($cachedSearchLocation)) : null;
+                
+                // Only use retrieved search state if location matches
+                if ($cachedSearchLocation && (!$requestLocation || $requestLocationNormalized === $stateLocationNormalized)) {
+                    Log::info('Using retrieved search state for pagination', [
+                        'conversation_id' => $conversationId,
+                        'location' => $cachedSearchLocation,
+                        'all_garages_count' => count($retrievedSearchState['all_garages'])
+                    ]);
+                    
+                    $searchState = $retrievedSearchState;
+                    $allGarages = $searchState['all_garages'];
+                    $currentOffset = $searchState['current_offset'] ?? 0;
+                    
+                    // Normalize shown IDs to integers for proper comparison
+                    $shownGarageIdsNormalized = array_map('intval', $shownGarageIds);
+                    $availableGarages = array_filter($allGarages, function($garage) use ($shownGarageIdsNormalized) {
+                        $garageId = isset($garage['id']) ? (int)$garage['id'] : null;
+                        return $garageId && $garageId > 0 && !in_array($garageId, $shownGarageIdsNormalized, true);
+                    });
+                    $availableGarages = array_values($availableGarages);
+                    
+                    $perPage = isset($searchState['_more_request_limit']) && $searchState['_more_request_limit'] > 0
+                        ? (int)$searchState['_more_request_limit']
+                        : (isset($searchState['search_params']['limit']) && $searchState['search_params']['limit'] > 0
+                            ? (int)$searchState['search_params']['limit']
+                            : 5);
+                    
+                    $nextBatch = array_slice($availableGarages, 0, $perPage);
+                    
+                    if (!empty($nextBatch)) {
+                        $newOffset = $currentOffset + count($nextBatch);
+                        Log::info('Returning paginated results from retrieved search state', [
+                            'conversation_id' => $conversationId,
+                            'returning_count' => count($nextBatch),
+                            'returning_garage_ids' => array_column($nextBatch, 'id')
+                        ]);
+                        return [
+                            'status' => 'success',
+                            'action' => 'find_garage',
+                            'count' => count($nextBatch),
+                            'results' => $nextBatch,
+                            '_new_offset' => $newOffset,
+                        ];
+                    }
+                }
+            }
         }
         
         // This is a new search - fetch ALL matching garages
+        // CRITICAL: If we have shown garage IDs, we should exclude them from the initial query
+        // CRITICAL: Always use cached location if available (unless explicitly overridden)
         $location = $args['location'] ?? null;
+        if (!$location && $cachedLocation) {
+            // If no location in args but we have cached location, use it
+            $location = $cachedLocation;
+            Log::info('Using cached location for new search', [
+                'conversation_id' => $conversationId,
+                'cached_location' => $cachedLocation
+            ]);
+        }
+        
         $selectedTags = $args['selected_tags'] ?? [];
         $selectedServices = $args['selected_services'] ?? [];
         $selectedSpecializations = $args['selected_specializations'] ?? [];
@@ -1098,6 +1856,176 @@ class ChatController extends Controller
         $limit = isset($args['limit']) && is_numeric($args['limit']) && $args['limit'] > 0 
             ? (int)$args['limit'] 
             : 5; // Default to 5 if not specified
+        
+        // CRITICAL: Location is required - if still missing, return error
+        if (!$location) {
+            Log::warning('Location missing in findGarage call', [
+                'conversation_id' => $conversationId,
+                'args' => $args
+            ]);
+            return [
+                'status' => 'error',
+                'message' => 'Location is required to find garages. Please specify a location.',
+                'results' => [],
+            ];
+        }
+
+        // Handle multiple locations (comma-separated or "and" separated) - e.g., "Dasma, Ahmadi" or "Dasma and Ahmadi"
+        // Normalize "and" to comma for consistent handling
+        $locationNormalized = preg_replace('/\s+and\s+/i', ', ', $location);
+        $locations = array_map('trim', explode(',', $locationNormalized));
+        $locations = array_filter($locations, function($loc) {
+            return !empty($loc) && strlen($loc) > 2;
+        });
+        
+        // If only one location after splitting, use original location
+        if (count($locations) === 1) {
+            $locations = [$location];
+        }
+        
+        // CRITICAL: If multiple locations detected, search each separately with limit per location
+        $isMultipleLocations = count($locations) > 1;
+        
+        // Handle "more" requests for multiple locations
+        // CRITICAL: Check search state FIRST - if previous search had multiple locations, 
+        // handle it as multiple locations even if current request only mentions one location
+        // Note: $hasMultipleLocationsInState is already defined earlier in the function
+        
+        if (($isMultipleLocations || $hasMultipleLocationsInState) && $searchState && $hasMultipleLocationsInState) {
+            // This is a "more" request for multiple locations
+            $storedLocations = $searchState['_locations'] ?? $locations;
+            $allResults = [];
+            $filters = [
+                'selected_tags' => $selectedTags,
+                'selected_services' => $selectedServices,
+                'selected_specializations' => $selectedSpecializations,
+                'selected_categories' => $selectedCategories,
+            ];
+            
+            // Check if this is a location-specific "more" request
+            $targetLocation = $args['_target_location'] ?? null; // Passed from processToolCalls
+            
+            if ($targetLocation) {
+                // Location-specific "more" request - only get more for the specified location
+                // CRITICAL: Match the target location to one of the stored locations (case-insensitive)
+                $targetLocationNormalized = strtolower(trim($targetLocation));
+                $matchedStoredLocation = null;
+                
+                foreach ($storedLocations as $storedLoc) {
+                    $storedLocNormalized = strtolower(trim($storedLoc));
+                    if ($storedLocNormalized === $targetLocationNormalized || 
+                        strpos($storedLocNormalized, $targetLocationNormalized) !== false ||
+                        strpos($targetLocationNormalized, $storedLocNormalized) !== false) {
+                        $matchedStoredLocation = $storedLoc;
+                        break;
+                    }
+                }
+                
+                // Use matched location if found, otherwise use target location as-is
+                $locationToSearch = $matchedStoredLocation ?? $targetLocation;
+                
+                Log::info('Location-specific "more" request', [
+                    'conversation_id' => $conversationId,
+                    'target_location' => $targetLocation,
+                    'matched_location' => $locationToSearch,
+                    'stored_locations' => $storedLocations
+                ]);
+                
+                // Location-specific "more" request - only get more for the specified location
+                $locationResults = $this->searchGaragesForLocation(
+                    $locationToSearch,
+                    $filters,
+                    $shownGarageIds,
+                    $limit
+                );
+                $allResults = $locationResults;
+            } else {
+                // General "more" request - get more for all locations
+                foreach ($storedLocations as $loc) {
+                    $locationResults = $this->searchGaragesForLocation(
+                        $loc,
+                        $filters,
+                        $shownGarageIds,
+                        $limit // Limit per location
+                    );
+                    
+                    // Add results for this location (grouped - all from first location, then all from second)
+                    $allResults = array_merge($allResults, $locationResults);
+                    
+                    // Update shown garage IDs for next location search
+                    $locationGarageIds = array_column($locationResults, 'id');
+                    if (!empty($locationGarageIds)) {
+                        $shownGarageIds = array_merge($shownGarageIds, $locationGarageIds);
+                    }
+                }
+            }
+            
+            if (empty($allResults)) {
+                return [
+                    'status' => 'no_more_results',
+                    'message' => 'You have reached all available garages for this search. All matching results have been provided to you.',
+                    'results' => [],
+                ];
+            }
+            
+            return [
+                'status' => 'success',
+                'action' => 'find_garage',
+                'count' => count($allResults),
+                'total_count' => count($allResults),
+                'results' => $allResults,
+                '_all_garages' => $allResults,
+                '_offset' => count($allResults),
+                '_multiple_locations' => true,
+                '_locations' => $storedLocations,
+            ];
+        }
+        
+        // If multiple locations, search each separately and combine results
+        if ($isMultipleLocations && !$searchState) {
+            // This is a new search with multiple locations
+            // Search each location separately with limit per location
+            $allResults = [];
+            $filters = [
+                'selected_tags' => $selectedTags,
+                'selected_services' => $selectedServices,
+                'selected_specializations' => $selectedSpecializations,
+                'selected_categories' => $selectedCategories,
+            ];
+            
+            foreach ($locations as $loc) {
+                $locationResults = $this->searchGaragesForLocation(
+                    $loc,
+                    $filters,
+                    $shownGarageIds,
+                    $limit // Limit per location
+                );
+                
+                // Add results for this location (grouped - all from first location, then all from second)
+                $allResults = array_merge($allResults, $locationResults);
+                
+                // Update shown garage IDs for next location search
+                $locationGarageIds = array_column($locationResults, 'id');
+                if (!empty($locationGarageIds)) {
+                    $shownGarageIds = array_merge($shownGarageIds, $locationGarageIds);
+                }
+            }
+            
+            // Return combined results
+            return [
+                'status' => 'success',
+                'action' => 'find_garage',
+                'count' => count($allResults),
+                'total_count' => count($allResults),
+                'results' => $allResults,
+                '_all_garages' => $allResults, // For caching
+                '_offset' => count($allResults),
+                '_multiple_locations' => true, // Flag to indicate multiple locations
+                '_locations' => $locations, // Store locations for "more" requests
+            ];
+        }
+        
+        // Single location or "more" request - use existing logic
 
         // Kuwait country ID is 112
         $query = Garage::query()
@@ -1108,64 +2036,91 @@ class ChatController extends Controller
 
         // Exclude already shown garage IDs
         if (!empty($shownGarageIds)) {
-            $query->whereNotIn('id', $shownGarageIds);
-            Log::info('Excluding shown garage IDs from search', [
-                'conversation_id' => $conversationId,
-                'excluded_ids' => $shownGarageIds,
-                'excluded_count' => count($shownGarageIds)
-            ]);
+            // Normalize IDs to integers for database query
+            $excludedIds = array_map('intval', array_filter($shownGarageIds, function($id) {
+                return is_numeric($id) && $id > 0;
+            }));
+            if (!empty($excludedIds)) {
+                $query->whereNotIn('id', $excludedIds);
+                Log::info('Excluding shown garage IDs from search', [
+                    'conversation_id' => $conversationId,
+                    'excluded_ids' => $excludedIds,
+                    'excluded_count' => count($excludedIds)
+                ]);
+            }
         }
 
-        // Filter by location using smart area matching
-        if ($location) {
-            $matchedAreas = $this->matchAreasFromUserRequest($location);
+        // Filter by location(s) using smart area matching - STRICT matching only
+        if (!empty($locations)) {
+            $allMatchedAreas = [];
+            
+            // Match areas for each location
+            foreach ($locations as $loc) {
+                $matchedAreas = $this->matchAreasFromUserRequest($loc);
+                if (!empty($matchedAreas)) {
+                    $allMatchedAreas = array_merge($allMatchedAreas, $matchedAreas);
+                }
+            }
+            
+            // Remove duplicates
+            $allMatchedAreas = array_unique($allMatchedAreas);
             
             // Log for debugging
-            Log::info('Area matching result', [
+            Log::info('Area matching result (multiple locations)', [
                 'user_request' => $location,
-                'matched_areas' => $matchedAreas,
-                'match_count' => count($matchedAreas)
+                'locations' => $locations,
+                'matched_areas' => $allMatchedAreas,
+                'match_count' => count($allMatchedAreas)
             ]);
             
-            if (!empty($matchedAreas)) {
-                // Use matched areas for precise search
-                // Also search in address field to catch garages that might have the location in address
-                $query->where(function ($q) use ($matchedAreas, $location) {
-                    // First, try exact matches on area, city, governate
+            if (!empty($allMatchedAreas)) {
+                // Use STRICT exact matching - only show garages from the matched areas
+                // This ensures if user says "Salmiya", they only get Salmiya garages, not other areas
+                $query->where(function ($q) use ($allMatchedAreas) {
                     $firstArea = true;
-                    foreach ($matchedAreas as $matchedArea) {
+                    foreach ($allMatchedAreas as $matchedArea) {
                         if ($firstArea) {
-                            $q->where(function ($subQ) use ($matchedArea) {
-                                $subQ->where('area', $matchedArea)
-                                    ->orWhere('city', $matchedArea)
-                                    ->orWhere('governate', $matchedArea);
-                            });
+                            // Use exact match on area field (primary filter)
+                            $q->where('area', $matchedArea);
                             $firstArea = false;
                         } else {
-                            $q->orWhere(function ($subQ) use ($matchedArea) {
-                                $subQ->where('area', $matchedArea)
-                                    ->orWhere('city', $matchedArea)
-                                    ->orWhere('governate', $matchedArea);
-                            });
+                            // If multiple areas matched, use OR for exact matches only
+                            $q->orWhere('area', $matchedArea);
                         }
                     }
-                    
-                    // Also search in address field for the matched areas (in case area/city/governate don't match but address does)
-                    foreach ($matchedAreas as $matchedArea) {
-                        $q->orWhere('address', 'like', "%{$matchedArea}%");
-                    }
-                    
-                    // Also do a LIKE search on the original location as a fallback
-                    // This catches cases where the match might not be perfect
-                    $q->orWhere('address', 'like', "%{$location}%");
                 });
             } else {
-                // Fallback to original LIKE search if no match found
-                $query->where(function ($q) use ($location) {
-                    $q->where('area', 'like', "%{$location}%")
-                        ->orWhere('city', 'like', "%{$location}%")
-                        ->orWhere('address', 'like', "%{$location}%")
-                        ->orWhere('governate', 'like', "%{$location}%");
+                // Fallback: If no area match found, try exact match first, then LIKE as last resort
+                // But prioritize exact matches to avoid showing wrong areas
+                $query->where(function ($q) use ($locations) {
+                    $firstLocation = true;
+                    foreach ($locations as $loc) {
+                        if ($firstLocation) {
+                            // First try exact match on area (most important)
+                            $q->where('area', $loc)
+                                // Then try exact match on city
+                                ->orWhere('city', $loc)
+                                // Then try exact match on governate
+                                ->orWhere('governate', $loc)
+                                // Only as last resort, use LIKE search (but still strict)
+                                ->orWhere(function ($subQ) use ($loc) {
+                                    $subQ->where('area', 'like', "%{$loc}%")
+                                        ->orWhere('city', 'like', "%{$loc}%")
+                                        ->orWhere('governate', 'like', "%{$loc}%");
+                                });
+                            $firstLocation = false;
+                        } else {
+                            // For additional locations, use OR
+                            $q->orWhere('area', $loc)
+                                ->orWhere('city', $loc)
+                                ->orWhere('governate', $loc)
+                                ->orWhere(function ($subQ) use ($loc) {
+                                    $subQ->where('area', 'like', "%{$loc}%")
+                                        ->orWhere('city', 'like', "%{$loc}%")
+                                        ->orWhere('governate', 'like', "%{$loc}%");
+                                });
+                        }
+                    }
                 });
             }
         }
@@ -1235,24 +2190,33 @@ class ChatController extends Controller
             'garages_found' => $garages->count(),
         ]);
 
-        // If no garages found, try a more lenient search
+        // If no garages found, try a more lenient search (but still prioritize area field)
         if ($garages->isEmpty() && $location) {
-            // Try a broader search - search in all location fields with LIKE
+            // Try a broader search - but still prioritize area field to avoid wrong areas
             $lenientQuery = Garage::query()
                 ->where('status', 'approved')
                 ->where('is_available', true)
                 ->where('country_id', 112)
                 ->whereNull('deleted_at')
                 ->where(function ($q) use ($location) {
+                    // Prioritize area field first (most important for location matching)
                     $q->where('area', 'like', "%{$location}%")
+                        // Then city (secondary)
                         ->orWhere('city', 'like', "%{$location}%")
-                        ->orWhere('address', 'like', "%{$location}%")
+                        // Then governate (tertiary)
                         ->orWhere('governate', 'like', "%{$location}%");
+                    // Note: Removed address field from lenient search to avoid matching wrong areas
                 });
             
             // Exclude already shown garage IDs from lenient search too
             if (!empty($shownGarageIds)) {
-                $lenientQuery->whereNotIn('id', $shownGarageIds);
+                // Normalize IDs to integers for database query
+                $excludedIds = array_map('intval', array_filter($shownGarageIds, function($id) {
+                    return is_numeric($id) && $id > 0;
+                }));
+                if (!empty($excludedIds)) {
+                    $lenientQuery->whereNotIn('id', $excludedIds);
+                }
             }
             
             // Apply other filters if they exist
@@ -1284,8 +2248,39 @@ class ChatController extends Controller
                 ->get();
             
             if (!$lenientGarages->isEmpty()) {
-                Log::info('Lenient search found garages', ['count' => $lenientGarages->count()]);
-                $garages = $lenientGarages;
+                // CRITICAL: Filter lenient results to ensure location matches
+                // Handle multiple locations
+                $locationNormalizedList = array_map(function($loc) {
+                    return strtolower(trim($loc));
+                }, $locations);
+                
+                $lenientGarages = $lenientGarages->filter(function($garage) use ($locationNormalizedList) {
+                    $garageArea = strtolower(trim($garage->area ?? ''));
+                    $garageCity = strtolower(trim($garage->city ?? ''));
+                    $garageGovernate = strtolower(trim($garage->governate ?? ''));
+                    
+                    // Garage must match at least one location in area, city, or governate
+                    foreach ($locationNormalizedList as $locationNormalized) {
+                        if ($garageArea === $locationNormalized || 
+                            $garageCity === $locationNormalized || 
+                            $garageGovernate === $locationNormalized ||
+                            strpos($garageArea, $locationNormalized) !== false ||
+                            strpos($garageCity, $locationNormalized) !== false ||
+                            strpos($garageGovernate, $locationNormalized) !== false) {
+                            return true;
+                        }
+                    }
+                    return false;
+                });
+                
+                if (!$lenientGarages->isEmpty()) {
+                    Log::info('Lenient search found garages after location filtering', [
+                        'count' => $lenientGarages->count(),
+                        'location' => $location,
+                        'locations' => $locations
+                    ]);
+                    $garages = $lenientGarages;
+                }
             }
         }
 
@@ -1293,6 +2288,7 @@ class ChatController extends Controller
         if ($garages->isEmpty()) {
             Log::warning('No garages found after all search attempts', [
                 'location' => $location,
+                'locations' => $locations,
                 'filters' => [
                     'tags' => $selectedTags,
                     'services' => $selectedServices,
@@ -1309,6 +2305,46 @@ class ChatController extends Controller
         }
 
         $geocodingApiKey = env('GOOGLE_MAPS_API_KEY');
+        // CRITICAL: Filter garages to ensure they match the requested location(s) exactly
+        // This prevents showing garages from wrong areas even if database query is lenient
+        $matchedAreasNormalized = !empty($allMatchedAreas) ? array_map(function($area) {
+            return strtolower(trim($area));
+        }, $allMatchedAreas) : [];
+        $locationNormalizedList = array_map(function($loc) {
+            return strtolower(trim($loc));
+        }, $locations);
+        
+        $garages = $garages->filter(function($garage) use ($matchedAreasNormalized, $locationNormalizedList) {
+            $garageArea = strtolower(trim($garage->area ?? ''));
+            $garageCity = strtolower(trim($garage->city ?? ''));
+            $garageGovernate = strtolower(trim($garage->governate ?? ''));
+            
+            // If we have matched areas, garage must be in one of them
+            if (!empty($matchedAreasNormalized)) {
+                foreach ($matchedAreasNormalized as $matchedArea) {
+                    if ($garageArea === $matchedArea || 
+                        $garageCity === $matchedArea || 
+                        $garageGovernate === $matchedArea) {
+                        return true;
+                    }
+                }
+                return false;
+            }
+            
+            // Otherwise, check if garage matches at least one location (exact or partial)
+            foreach ($locationNormalizedList as $locationNormalized) {
+                if ($garageArea === $locationNormalized || 
+                    $garageCity === $locationNormalized || 
+                    $garageGovernate === $locationNormalized ||
+                    strpos($garageArea, $locationNormalized) !== false ||
+                    strpos($garageCity, $locationNormalized) !== false ||
+                    strpos($garageGovernate, $locationNormalized) !== false) {
+                    return true;
+                }
+            }
+            return false;
+        });
+        
         // Format ALL garages
         $allResults = $garages->map(function ($garage, $index) use ($geocodingApiKey) {
             $lat = $garage->latitude;
@@ -1368,7 +2404,7 @@ class ChatController extends Controller
             'total_count' => count($allResults),
             'results' => $limitedResults, // Return limited number of garages (default 5)
             '_all_garages' => $allResults, // Internal: all garages for caching
-            '_offset' => count($limitedResults), // Internal: current offset (limited results shown)
+            '_offset' => count($limitedResults), // Internal: current offset (number of garages shown so far)
         ];
     }
 
@@ -2395,20 +3431,114 @@ Return ONLY the JSON object, no additional text or explanation.";
     }
 
     /**
-     * Extract location from user message
-     * Looks for patterns like "in [location]", "at [location]", "near [location]"
+     * Check if message is a "both" request (e.g., "find in both", "both locations")
      * 
      * @param string $message User message
-     * @return string|null Extracted location or null if not found
+     * @return bool True if message is a "both" request
+     */
+    private function isBothRequest(string $message): bool
+    {
+        $messageLower = strtolower(trim($message));
+        
+        $bothKeywords = [
+            'both',
+            'both locations',
+            'both areas',
+            'both places',
+            'in both',
+            'find in both',
+            'search in both',
+            'show both',
+            'get both'
+        ];
+        
+        foreach ($bothKeywords as $keyword) {
+            if (strpos($messageLower, $keyword) !== false) {
+                return true;
+            }
+        }
+        
+        return false;
+    }
+
+    /**
+     * Extract multiple recent locations from conversation history
+     * Returns the two most recent distinct locations mentioned
+     * 
+     * @param array $history Conversation history
+     * @return array Array of location strings (max 2)
+     */
+    private function extractRecentLocationsFromHistory(array $history): array
+    {
+        $locations = [];
+        $seenLocations = [];
+        
+        // Look through history in reverse (most recent first)
+        $historyReversed = array_reverse($history);
+        
+        foreach ($historyReversed as $message) {
+            $content = $message['content'] ?? '';
+            $role = $message['role'] ?? '';
+            
+            // Extract location from message content
+            $locationPatterns = [
+                '/\b(?:garages?|garage|found|search|results?)\s+(?:in|at|near)\s+([A-Za-z\s]+?)(?:\s|$|,|\.|:)/i',
+                '/\bin\s+([A-Za-z\s]+?)(?:\s|$|,|\.)/i',
+                '/\bat\s+([A-Za-z\s]+?)(?:\s|$|,|\.)/i',
+                '/\bnear\s+([A-Za-z\s]+?)(?:\s|$|,|\.)/i',
+            ];
+            
+            foreach ($locationPatterns as $pattern) {
+                if (preg_match($pattern, $content, $matches)) {
+                    $location = trim($matches[1]);
+                    // Remove common words
+                    $location = preg_replace('/\b(garages?|garage|found|search|results?|the|in|at|near|both|locations?|areas?|places?)\b/i', '', $location);
+                    $location = trim($location);
+                    
+                    // Validate location
+                    if (!empty($location) && 
+                        strlen($location) >= 3 && 
+                        !in_array(strtolower($location), ['the', 'and', 'for', 'are', 'was', 'you', 'can', 'may', 'both', 'location', 'locations', 'area', 'areas', 'place', 'places']) &&
+                        !in_array(strtolower($location), $seenLocations)) {
+                        
+                        $locationLower = strtolower($location);
+                        $locations[] = $location;
+                        $seenLocations[] = $locationLower;
+                        
+                        // Stop after finding 2 distinct locations
+                        if (count($locations) >= 2) {
+                            break 2;
+                        }
+                    }
+                }
+            }
+            
+            if (count($locations) >= 2) {
+                break;
+            }
+        }
+        
+        return array_reverse($locations); // Return in chronological order (oldest first)
+    }
+
+    /**
+     * Extract location(s) from user message
+     * Looks for patterns like "in [location]", "at [location]", "near [location]"
+     * Supports multiple locations separated by comma or "and"
+     * 
+     * @param string $message User message
+     * @return string|null Extracted location(s) or null if not found (comma-separated if multiple)
      */
     private function extractLocationFromMessage(string $message): ?string
     {
         $messageLower = strtolower(trim($message));
         
         // Skip if it's just a "more" request without location
+        // But allow extraction if location is explicitly mentioned (e.g., "more in dasma")
         $moreKeywords = ['more', 'next', 'load more', 'show more', 'find more'];
         $isJustMoreRequest = false;
         foreach ($moreKeywords as $keyword) {
+            // Check if it's JUST a "more" request without location
             if (preg_match('/^(?:\d+\s*)?(?:' . preg_quote($keyword, '/') . ')(?:\s+garages?)?$/i', $messageLower) ||
                 preg_match('/^(?:find|show|get|give|bring|fetch)\s+(?:\d+\s*)?(?:more|garages?|results?|options?)(?:\s+garages?)?$/i', $messageLower)) {
                 $isJustMoreRequest = true;
@@ -2417,24 +3547,32 @@ Return ONLY the JSON object, no additional text or explanation.";
         }
         
         if ($isJustMoreRequest) {
-            return null; // Don't extract location from "more" requests
+            return null; // Don't extract location from "more" requests without location
         }
         
         // Look for location patterns: "in [location]", "at [location]", "near [location]"
+        // Updated to capture multiple locations (comma or "and" separated)
         $locationPatterns = [
-            '/\bin\s+([a-z\s]+?)(?:\s|$|,|\.)/i',
-            '/\bat\s+([a-z\s]+?)(?:\s|$|,|\.)/i',
-            '/\bnear\s+([a-z\s]+?)(?:\s|$|,|\.)/i'
+            '/\bin\s+([a-z\s,]+(?:and\s+[a-z\s,]+)?)(?:\s|$|\.)/i',
+            '/\bat\s+([a-z\s,]+(?:and\s+[a-z\s,]+)?)(?:\s|$|\.)/i',
+            '/\bnear\s+([a-z\s,]+(?:and\s+[a-z\s,]+)?)(?:\s|$|\.)/i'
         ];
         
         foreach ($locationPatterns as $pattern) {
             if (preg_match($pattern, $message, $matches)) {
                 $location = trim($matches[1]);
                 // Remove common words that might be captured
-                $location = preg_replace('/\b(garages?|garage|find|search|for|a|the|in|at|near)\b/i', '', $location);
+                $location = preg_replace('/\b(garages?|garage|find|search|for|a|the|in|at|near|both|locations?|areas?|places?)\b/i', '', $location);
                 $location = trim($location);
                 
                 if (!empty($location) && strlen($location) > 2) {
+                    // Normalize separators: replace "and" with comma for consistent handling
+                    $location = preg_replace('/\s+and\s+/i', ', ', $location);
+                    // Clean up multiple spaces and commas
+                    $location = preg_replace('/\s*,\s*/', ', ', $location);
+                    $location = preg_replace('/\s+/', ' ', $location);
+                    $location = trim($location);
+                    
                     return $location;
                 }
             }
@@ -2494,7 +3632,13 @@ Return ONLY the JSON object, no additional text or explanation.";
     {
         $cacheKey = 'shown_garage_ids_' . $conversationId;
         $shownIds = Cache::get($cacheKey, []);
-        return is_array($shownIds) ? $shownIds : [];
+        if (!is_array($shownIds)) {
+            return [];
+        }
+        // Normalize all IDs to integers for consistent comparison
+        return array_map('intval', array_filter($shownIds, function($id) {
+            return is_numeric($id) && $id > 0;
+        }));
     }
 
     /**
@@ -2508,9 +3652,14 @@ Return ONLY the JSON object, no additional text or explanation.";
     {
         $cacheKey = 'shown_garage_ids_' . $conversationId;
         $existingIds = $this->getShownGarageIds($conversationId);
+        
+        // Normalize all IDs to integers to ensure consistent comparison
         $newIds = array_filter($garageIds, function($id) {
             return is_numeric($id) && $id > 0;
         });
+        $newIds = array_map('intval', $newIds);
+        $existingIds = array_map('intval', $existingIds);
+        
         $allIds = array_unique(array_merge($existingIds, $newIds));
         
         // Cache for 24 hours
@@ -2519,7 +3668,9 @@ Return ONLY the JSON object, no additional text or explanation.";
         Log::info('Added shown garage IDs', [
             'conversation_id' => $conversationId,
             'new_ids' => $newIds,
-            'total_shown' => count($allIds)
+            'existing_ids' => $existingIds,
+            'total_shown' => count($allIds),
+            'all_ids' => $allIds
         ]);
     }
 
@@ -2547,6 +3698,7 @@ Return ONLY the JSON object, no additional text or explanation.";
         array &$history,
         int $conversationId,
         bool &$isMoreRequest,
+        ?string $moreRequestLocation, // Location-specific "more" request target location
         ?array &$searchState,
         array &$garagesData,
         bool &$hasExternalServiceResults,
@@ -2564,31 +3716,127 @@ Return ONLY the JSON object, no additional text or explanation.";
                 $args = [];
             }
 
-            // Handle "more" request validation for findGarage
-            if ($isMoreRequest && $searchState && $toolName === 'findGarage') {
-                $validationResult = $this->validateMoreRequest($args, $searchState, $conversationId);
-                if ($validationResult['isValid']) {
-                    $args = $searchState['search_params'];
+            // CRITICAL: For "more" requests, FORCE use of cached location and search state
+            if ($isMoreRequest && $toolName === 'findGarage') {
+                // Priority 1: Use search state location (most reliable)
+                if ($searchState && isset($searchState['search_params']['location'])) {
+                    $forcedLocation = $searchState['search_params']['location'];
+                    // FORCE override - ignore any location the AI might have provided
+                    $args['location'] = $forcedLocation;
+                    
+                    // Merge search state params but preserve limit override if specified
+                    $originalLimit = $args['limit'] ?? null;
+                    $args = array_merge($searchState['search_params'], $args);
+                    
+                    // Use _more_request_limit if available, otherwise use original limit, otherwise use search state limit
+                    if (isset($searchState['_more_request_limit']) && $searchState['_more_request_limit'] > 0) {
+                        $args['limit'] = $searchState['_more_request_limit'];
+                    } elseif ($originalLimit && $originalLimit > 0) {
+                        $args['limit'] = $originalLimit;
+                    }
+                    
+                    Log::info('FORCED location for "more" request from search state', [
+                        'conversation_id' => $conversationId,
+                        'forced_location' => $forcedLocation,
+                        'ai_provided_location' => $args['location'] ?? 'none',
+                        'limit' => $args['limit'] ?? 'default'
+                    ]);
                 } else {
-                    $isMoreRequest = false;
-                    $searchState = null;
-                    $this->clearSearchState($conversationId);
+                    // Priority 2: Use cached location (even if search state is missing)
+                    $cachedLocation = $this->getCachedLocation($conversationId);
+                    if ($cachedLocation) {
+                        // FORCE override - ignore any location the AI might have provided
+                        $args['location'] = $cachedLocation;
+                        
+                        // If no limit specified, default to 5
+                        if (empty($args['limit']) || !is_numeric($args['limit']) || $args['limit'] <= 0) {
+                            $args['limit'] = 5;
+                        }
+                        
+                        Log::info('FORCED cached location for "more" request (search state missing)', [
+                            'conversation_id' => $conversationId,
+                            'forced_location' => $cachedLocation,
+                            'limit' => $args['limit']
+                        ]);
+                    } else {
+                        // No location available - try to get from search state one more time
+                        $fallbackSearchState = $this->getSearchState($conversationId);
+                        if ($fallbackSearchState && isset($fallbackSearchState['search_params']['location'])) {
+                            $args['location'] = $fallbackSearchState['search_params']['location'];
+                            $args = array_merge($fallbackSearchState['search_params'], $args);
+                            Log::info('Retrieved location from fallback search state', [
+                                'conversation_id' => $conversationId,
+                                'location' => $args['location']
+                            ]);
+                        } else {
+                            // No location available - this shouldn't happen, but log it
+                            Log::error('No location available for "more" request - cannot proceed', [
+                                'conversation_id' => $conversationId,
+                                'search_state_exists' => $searchState !== null,
+                                'fallback_search_state_exists' => $fallbackSearchState !== null
+                            ]);
+                            // Don't skip - let it try with whatever location AI provided (might work)
+                        }
+                    }
+                }
+            } else {
+                // For non-"more" requests, use cached location if missing
+                if ($toolName === 'findGarage' && empty($args['location'])) {
+                    $cachedLocation = $this->getCachedLocation($conversationId);
+                    if ($cachedLocation) {
+                        $args['location'] = $cachedLocation;
+                        Log::info('Injected cached location into findGarage call', [
+                            'conversation_id' => $conversationId,
+                            'cached_location' => $cachedLocation
+                        ]);
+                    }
                 }
             }
             
-            // If location is missing from args but we have cached location, use it
-            if ($toolName === 'findGarage' && empty($args['location'])) {
-                $cachedLocation = $this->getCachedLocation($conversationId);
-                if ($cachedLocation) {
-                    $args['location'] = $cachedLocation;
-                    Log::info('Injected cached location into findGarage call', [
+            // CRITICAL: For "more" requests, always pass search state if available
+            // If search state wasn't passed but we have conversation ID, retrieve it
+            $toolSearchState = $searchState;
+            if ($isMoreRequest && !$toolSearchState && $conversationId) {
+                $toolSearchState = $this->getSearchState($conversationId);
+                if ($toolSearchState) {
+                    Log::info('Retrieved search state for "more" request in processToolCalls', [
                         'conversation_id' => $conversationId,
-                        'cached_location' => $cachedLocation
+                        'has_all_garages' => isset($toolSearchState['all_garages']),
+                        'garage_count' => isset($toolSearchState['all_garages']) ? count($toolSearchState['all_garages']) : 0
                     ]);
                 }
             }
             
-            $result = $this->dispatchTool($toolName, $args, $isMoreRequest ? $searchState : null, $conversationId);
+            // CRITICAL FIX: Even if not explicitly detected as "more", if we have search state with same location,
+            // treat it as a continuation (pagination) to avoid showing duplicates
+            if (!$isMoreRequest && $toolName === 'findGarage' && !$toolSearchState && $conversationId) {
+                $existingSearchState = $this->getSearchState($conversationId);
+                if ($existingSearchState && isset($existingSearchState['search_params']['location'])) {
+                    $requestLocation = strtolower(trim($args['location'] ?? ''));
+                    $stateLocation = strtolower(trim($existingSearchState['search_params']['location'] ?? ''));
+                    if ($requestLocation && $stateLocation && $requestLocation === $stateLocation) {
+                        // Same location as previous search - use search state for pagination
+                        $toolSearchState = $existingSearchState;
+                        Log::info('Auto-detected pagination request (same location as previous search)', [
+                            'conversation_id' => $conversationId,
+                            'location' => $requestLocation,
+                            'has_all_garages' => isset($toolSearchState['all_garages']),
+                            'garage_count' => isset($toolSearchState['all_garages']) ? count($toolSearchState['all_garages']) : 0
+                        ]);
+                    }
+                }
+            }
+            
+            // Pass target location for location-specific "more" requests
+            if ($isMoreRequest && $toolName === 'findGarage' && $moreRequestLocation) {
+                $args['_target_location'] = $moreRequestLocation;
+                Log::info('Passing target location for location-specific "more" request', [
+                    'conversation_id' => $conversationId,
+                    'target_location' => $moreRequestLocation
+                ]);
+            }
+            
+            $result = $this->dispatchTool($toolName, $args, $toolSearchState, $conversationId);
 
             // Track external service results
             if ($toolName === 'findExternalService' && is_array($result)) {
@@ -2607,10 +3855,24 @@ Return ONLY the JSON object, no additional text or explanation.";
                     if (!empty($extractedGarages)) {
                         $garagesData = array_merge($garagesData, $extractedGarages);
                         
-                        // Track shown garage IDs
-                        $garageIds = array_filter(array_column($extractedGarages, 'id'));
+                        // Track shown garage IDs - normalize to integers
+                        $garageIds = array_filter(array_column($extractedGarages, 'id'), function($id) {
+                            return is_numeric($id) && $id > 0;
+                        });
                         if (!empty($garageIds)) {
+                            Log::info('Storing shown garage IDs after extracting results', [
+                                'conversation_id' => $conversationId,
+                                'garage_ids_to_store' => $garageIds,
+                                'tool_name' => $toolName,
+                                'is_more_request' => $isMoreRequest
+                            ]);
                             $this->addShownGarageIds($conversationId, $garageIds);
+                        } else {
+                            Log::warning('No garage IDs found to store', [
+                                'conversation_id' => $conversationId,
+                                'extracted_garages_count' => count($extractedGarages),
+                                'tool_name' => $toolName
+                            ]);
                         }
                         
                         // Store search state for pagination
@@ -2654,14 +3916,54 @@ Return ONLY the JSON object, no additional text or explanation.";
 
     /**
      * Validate "more" request parameters
+     * CRITICAL: Location must match exactly (case-insensitive) for "more" requests
      */
     private function validateMoreRequest(array $currentParams, array $searchState, int $conversationId): array
     {
         $cachedParams = $searchState['search_params'] ?? [];
         
+        // CRITICAL: Location is the primary validation - must match exactly
+        $cachedLocation = strtolower(trim($cachedParams['location'] ?? ''));
+        $currentLocation = strtolower(trim($currentParams['location'] ?? ''));
+        $cachedSystemLocation = strtolower(trim($this->getCachedLocation($conversationId) ?? ''));
+        
+        // Location validation: must match cached location OR search state location
+        $locationValid = false;
+        if ($cachedLocation && $currentLocation) {
+            // Both locations provided - must match
+            $locationValid = ($cachedLocation === $currentLocation);
+        } elseif ($cachedSystemLocation && $currentLocation) {
+            // Compare with system cached location
+            $locationValid = ($cachedSystemLocation === $currentLocation);
+        } elseif ($cachedLocation && $cachedSystemLocation) {
+            // Both cached locations must match
+            $locationValid = ($cachedLocation === $cachedSystemLocation);
+        } elseif ($cachedLocation || $cachedSystemLocation) {
+            // If we have a cached location but current doesn't match, invalid
+            $locationValid = false;
+        } else {
+            // No location cached - allow (shouldn't happen in "more" requests)
+            $locationValid = true;
+        }
+        
+        if (!$locationValid) {
+            Log::warning('Location mismatch in validateMoreRequest - treating as new search', [
+                'conversation_id' => $conversationId,
+                'cached_location' => $cachedLocation,
+                'current_location' => $currentLocation,
+                'system_cached_location' => $cachedSystemLocation
+            ]);
+            return ['isValid' => false];
+        }
+        
+        // Normalize other parameters for comparison
         $normalizeParams = function($params) {
             $normalized = [];
             foreach ($params as $key => $value) {
+                // Skip location in normalization (already validated above)
+                if ($key === 'location') {
+                    continue;
+                }
                 if (is_array($value)) {
                     $normalized[$key] = array_filter(array_map('trim', $value));
                     sort($normalized[$key]);
@@ -2675,12 +3977,20 @@ Return ONLY the JSON object, no additional text or explanation.";
         $cachedNormalized = $normalizeParams($cachedParams);
         $currentNormalized = $normalizeParams($currentParams);
         
-        if ($cachedNormalized == $currentNormalized) {
-            Log::info('Using cached search params for "more" request', ['params' => $cachedParams]);
+        // Other parameters should match (but location is primary)
+        $otherParamsMatch = ($cachedNormalized == $currentNormalized);
+        
+        if ($otherParamsMatch) {
+            Log::info('Using cached search params for "more" request', [
+                'conversation_id' => $conversationId,
+                'location' => $cachedLocation,
+                'params' => $cachedParams
+            ]);
             return ['isValid' => true];
         }
         
-        Log::info('Search params changed - treating as new search instead of "more"', [
+        Log::info('Search params changed (non-location) - treating as new search instead of "more"', [
+            'conversation_id' => $conversationId,
             'cached' => $cachedParams,
             'current' => $currentParams
         ]);
@@ -2689,6 +3999,7 @@ Return ONLY the JSON object, no additional text or explanation.";
 
     /**
      * Handle search state pagination
+     * CRITICAL: Ensures location is always stored and validated
      */
     private function handleSearchStatePagination(
         int $conversationId,
@@ -2698,23 +4009,98 @@ Return ONLY the JSON object, no additional text or explanation.";
         ?array &$searchState
     ): void {
         if ($isMoreRequest && $searchState) {
+            // Update offset after "more" request
             if (isset($result['_new_offset'])) {
                 $searchState['current_offset'] = $result['_new_offset'];
             } elseif (isset($result['results'])) {
+                // Fallback: increment offset by number of results returned
                 $newOffset = ($searchState['current_offset'] ?? 0) + count($result['results']);
                 $searchState['current_offset'] = $newOffset;
             }
+            // Clear the _more_request_limit after using it
+            if (isset($searchState['_more_request_limit'])) {
+                unset($searchState['_more_request_limit']);
+            }
+            
+            // CRITICAL: Verify location still matches before updating cache
+            $cachedLocation = $this->getCachedLocation($conversationId);
+            $searchLocation = $searchState['search_params']['location'] ?? null;
+            if ($cachedLocation && $searchLocation) {
+                $locationMatches = (strtolower(trim($cachedLocation)) === strtolower(trim($searchLocation)));
+                if (!$locationMatches) {
+                    Log::warning('Location mismatch detected in handleSearchStatePagination - clearing search state', [
+                        'conversation_id' => $conversationId,
+                        'cached_location' => $cachedLocation,
+                        'search_location' => $searchLocation
+                    ]);
+                    $this->clearSearchState($conversationId);
+                    return;
+                }
+            }
+            
+            // CRITICAL: Preserve multiple locations flags when updating search state
+            // These flags should already be in searchState, but ensure they're preserved
+            if (isset($result['_multiple_locations'])) {
+                $searchState['_multiple_locations'] = $result['_multiple_locations'];
+            }
+            if (isset($result['_locations'])) {
+                $searchState['_locations'] = $result['_locations'];
+            }
+            
             Cache::put('garage_search_state_' . $conversationId, $searchState, now()->addHour());
         } elseif (!$isMoreRequest && isset($result['_all_garages'])) {
-            // Ensure location is in args (use cached location if not provided)
+            // New search - store all garages with initial offset
+            // CRITICAL: Ensure location is in args (use cached location if not provided)
             if (empty($args['location'])) {
                 $cachedLocation = $this->getCachedLocation($conversationId);
                 if ($cachedLocation) {
                     $args['location'] = $cachedLocation;
+                    Log::info('Injected cached location into search state', [
+                        'conversation_id' => $conversationId,
+                        'location' => $cachedLocation
+                    ]);
                 }
             }
-            $offset = $result['_offset'] ?? count($result['_all_garages']);
-            $this->storeSearchState($conversationId, $args, $result['_all_garages'], $offset);
+            
+            // CRITICAL: Validate that all garages in _all_garages match the location
+            $location = $args['location'] ?? null;
+            if ($location) {
+                $locationNormalized = strtolower(trim($location));
+                $originalCount = count($result['_all_garages']);
+                $filteredGarages = array_filter($result['_all_garages'], function($garage) use ($locationNormalized) {
+                    $garageArea = strtolower(trim($garage['area'] ?? ''));
+                    $garageCity = strtolower(trim($garage['city'] ?? ''));
+                    $garageGovernate = strtolower(trim($garage['governate'] ?? ''));
+                    
+                    return ($garageArea === $locationNormalized || 
+                            $garageCity === $locationNormalized || 
+                            $garageGovernate === $locationNormalized ||
+                            strpos($garageArea, $locationNormalized) !== false ||
+                            strpos($garageCity, $locationNormalized) !== false ||
+                            strpos($garageGovernate, $locationNormalized) !== false);
+                });
+                
+                // Re-index array
+                $result['_all_garages'] = array_values($filteredGarages);
+                
+                if (count($filteredGarages) < $originalCount) {
+                    Log::warning('Filtered out garages from wrong location when storing search state', [
+                        'conversation_id' => $conversationId,
+                        'location' => $location,
+                        'original_count' => $originalCount,
+                        'filtered_count' => count($filteredGarages)
+                    ]);
+                }
+            }
+            
+            // Initial offset is the number of garages shown in first response
+            $offset = $result['_offset'] ?? (isset($result['results']) ? count($result['results']) : 0);
+            
+            // CRITICAL: Preserve multiple locations flags if present
+            $multipleLocationsFlag = $result['_multiple_locations'] ?? false;
+            $locationsArray = $result['_locations'] ?? null;
+            
+            $this->storeSearchState($conversationId, $args, $result['_all_garages'], $offset, $multipleLocationsFlag, $locationsArray);
         }
     }
 
@@ -2812,3 +4198,4 @@ Return ONLY the JSON object, no additional text or explanation.";
         return null;
     }
 }
+

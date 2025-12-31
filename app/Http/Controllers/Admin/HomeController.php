@@ -7,6 +7,7 @@ use App\Models\Tag;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Pagination\Paginator;
+use Illuminate\Http\Request;
 
 class HomeController
 {
@@ -58,12 +59,18 @@ class HomeController
         $currentPage = Paginator::resolveCurrentPage() ?: 1;
         $perPage = 10;
         $currentItems = $garagesByAreaWithPercent->slice(($currentPage - 1) * $perPage, $perPage)->values();
+        
+        // Build path for pagination links
+        $path = request()->url();
+        $query = request()->query();
+        unset($query['area_pagination']); // Remove area_pagination from query to avoid duplication
+        
         $garagesByAreaPaginated = new LengthAwarePaginator(
             $currentItems,
             $garagesByAreaWithPercent->count(),
             $perPage,
             $currentPage,
-            ['path' => request()->url(), 'query' => request()->query()]
+            ['path' => $path, 'query' => $query]
         );
 
         // Garages by Tag
@@ -97,6 +104,11 @@ class HomeController
         // All tags for filters
         $allTags = Tag::pluck('title', 'id');
 
+        // Check if this is an AJAX request for area pagination
+        if (request()->ajax() || request()->has('area_pagination')) {
+            return $this->getAreaPaginationData();
+        }
+
         return view('home', compact(
             'totalUsers',
             'usersByType',
@@ -114,5 +126,48 @@ class HomeController
             'areas',
             'allTags'
         ));
+    }
+
+    private function getAreaPaginationData()
+    {
+        // Garages by Area with percentages
+        $garagesByArea = Garage::select('area', DB::raw('count(*) as total'))
+            ->whereNotNull('area')
+            ->where('area', '!=', '')
+            ->groupBy('area')
+            ->orderByDesc('total')
+            ->get();
+        
+        $totalGaragesWithArea = $garagesByArea->sum('total');
+        $garagesByAreaWithPercent = $garagesByArea->map(function($item) use ($totalGaragesWithArea) {
+            $item->percentage = $totalGaragesWithArea > 0 ? round(($item->total / $totalGaragesWithArea) * 100, 2) : 0;
+            return $item;
+        });
+
+        // Paginate the area distribution (10 per page)
+        $currentPage = Paginator::resolveCurrentPage() ?: 1;
+        $perPage = 10;
+        $currentItems = $garagesByAreaWithPercent->slice(($currentPage - 1) * $perPage, $perPage)->values();
+        
+        // Build path for pagination links
+        $path = route('admin.home');
+        $query = request()->query();
+        unset($query['area_pagination']); // Remove area_pagination from query to avoid duplication
+        
+        $garagesByAreaPaginated = new LengthAwarePaginator(
+            $currentItems,
+            $garagesByAreaWithPercent->count(),
+            $perPage,
+            $currentPage,
+            ['path' => $path, 'query' => $query]
+        );
+
+        $html = view('partials.area-distribution-table', ['garagesByAreaPaginated' => $garagesByAreaPaginated])->render();
+        
+        return response()->json([
+            'html' => $html,
+            'current_page' => $garagesByAreaPaginated->currentPage(),
+            'last_page' => $garagesByAreaPaginated->lastPage()
+        ]);
     }
 }
