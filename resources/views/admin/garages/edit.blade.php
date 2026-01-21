@@ -37,7 +37,12 @@
                         <span class="help-block">{{ trans('cruds.garage.fields.title_helper') }}</span>
                     </div>
                     <div class="col-md-6">
-                        <label for="title_ar">{{ trans('cruds.garage.fields.title_ar') }}</label>
+                        <div class="d-flex align-items-center justify-content-between">
+                            <label for="title_ar" class="mb-0">{{ trans('cruds.garage.fields.title_ar') }}</label>
+                            <button type="button" class="btn btn-outline-primary btn-xs" id="autofill_title_ar">
+                                Auto-fill
+                            </button>
+                        </div>
                         <input class="form-control {{ $errors->has('title_ar') ? 'is-invalid' : '' }}" type="text" name="title_ar" id="title_ar" value="{{ old('title_ar', $garage->title_ar) }}" dir="rtl">
                         @if($errors->has('title_ar'))
                             <div class="invalid-feedback">
@@ -61,7 +66,12 @@
                         <span class="help-block">{{ trans('cruds.garage.fields.description_helper') }}</span>
                     </div>
                     <div class="col-md-6">
-                        <label for="description_ar">{{ trans('cruds.garage.fields.description_ar') }}</label>
+                        <div class="d-flex align-items-center justify-content-between">
+                            <label for="description_ar" class="mb-0">{{ trans('cruds.garage.fields.description_ar') }}</label>
+                            <button type="button" class="btn btn-outline-primary btn-xs" id="autofill_description_ar">
+                                Auto-fill
+                            </button>
+                        </div>
                         <textarea class="form-control {{ $errors->has('description_ar') ? 'is-invalid' : '' }}" name="description_ar" id="description_ar" rows="4" dir="rtl">{{ old('description_ar', $garage->description_ar) }}</textarea>
                         @if($errors->has('description_ar'))
                             <div class="invalid-feedback">
@@ -353,6 +363,55 @@
 @endsection
 
 @section('scripts')
+<script>
+    (function () {
+        const translateUrl = "{{ route('admin.garages.translateArabic') }}";
+        const csrf = "{{ csrf_token() }}";
+
+        async function translateAndFill(field, sourceSelector, targetSelector, buttonEl) {
+            const text = ($(sourceSelector).val() || '').toString().trim();
+            if (!text) {
+                alert('Please enter the English text first.');
+                return;
+            }
+
+            const oldText = buttonEl.textContent;
+            buttonEl.disabled = true;
+            buttonEl.textContent = 'Translating...';
+
+            try {
+                const res = await fetch(translateUrl, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Accept': 'application/json',
+                        'X-CSRF-TOKEN': csrf,
+                    },
+                    body: JSON.stringify({ field, text }),
+                });
+
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok) {
+                    throw new Error(data.message || 'Translation failed');
+                }
+
+                $(targetSelector).val(data.translation || '');
+            } catch (e) {
+                alert(e.message || 'Translation failed. Please try again.');
+            } finally {
+                buttonEl.disabled = false;
+                buttonEl.textContent = oldText;
+            }
+        }
+
+        document.getElementById('autofill_title_ar')?.addEventListener('click', function () {
+            translateAndFill('title', '#title', '#title_ar', this);
+        });
+        document.getElementById('autofill_description_ar')?.addEventListener('click', function () {
+            translateAndFill('description', '#description', '#description_ar', this);
+        });
+    })();
+</script>
 <script>
     Dropzone.options.logoDropzone = {
     url: '{{ route('admin.garages.storeMedia') }}',

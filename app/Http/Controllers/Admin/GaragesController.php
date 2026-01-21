@@ -17,6 +17,8 @@ use App\Models\Tag;
 use App\Models\User;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
+use OpenAI\Laravel\Facades\OpenAI;
 use Spatie\MediaLibrary\MediaCollections\Models\Media;
 use Symfony\Component\HttpFoundation\Response;
 
@@ -272,5 +274,79 @@ class GaragesController extends Controller
             ->get();
 
         return view('admin.garages-without-area', compact('garages'));
+    }
+
+    /**
+     * Translate Garage fields (title/description) into Arabic using OpenAI.
+     * Used by admin create/edit forms to auto-fill *_ar fields.
+     */
+    public function translateArabic(Request $request)
+    {
+        abort_if(Gate::denies('garage_create') && Gate::denies('garage_edit'), Response::HTTP_FORBIDDEN, '403 Forbidden');
+
+        $validated = $request->validate([
+            'field' => 'required|in:title,description',
+            'text'  => 'required|string|max:5000',
+        ]);
+
+        $apiKey = env('OPENAI_API_KEY');
+        if (empty($apiKey)) {
+            return response()->json([
+                'message' => 'OpenAI API key is not configured.',
+            ], Response::HTTP_UNPROCESSABLE_ENTITY);
+        }
+
+        $text = trim((string) $validated['text']);
+        if ($text === '') {
+            return response()->json([
+                'message' => 'Text is empty.',
+            ], Response::HTTP_UNPROCESSABLE_ENTITY);
+        }
+
+        try {
+            $model = env('OPENAI_MODEL', 'gpt-4o-mini');
+
+            $fieldContext = $validated['field'] === 'title'
+                ? 'garage/business title in Kuwait'
+                : 'garage/business description in Kuwait';
+
+            $system = "You are a professional translator into Kuwaiti Arabic (Gulf dialect, Kuwait).
+- Output ONLY the Arabic translation.
+- Keep brand names, phone numbers, addresses, and URLs unchanged.
+- Use common Kuwaiti terms where natural, but keep it understandable.";
+
+            $prompt = "Translate the following {$fieldContext} into Kuwaiti Arabic. Return ONLY the Arabic translation:\n\n{$text}";
+
+            $response = OpenAI::chat()->create([
+                'model' => $model,
+                'messages' => [
+                    ['role' => 'system', 'content' => $system],
+                    ['role' => 'user', 'content' => $prompt],
+                ],
+                'temperature' => 0.2,
+            ]);
+
+            $content = trim($response->choices[0]->message->content ?? '');
+            $content = trim($content, "\"'\n\r\t ");
+
+            if ($content === '') {
+                return response()->json([
+                    'message' => 'Translation returned empty result.',
+                ], Response::HTTP_BAD_GATEWAY);
+            }
+
+            return response()->json([
+                'translation' => $content,
+            ], Response::HTTP_OK);
+        } catch (\Throwable $e) {
+            Log::error('OpenAI translateArabic error', [
+                'field' => $validated['field'] ?? null,
+                'error' => $e->getMessage(),
+            ]);
+
+            return response()->json([
+                'message' => 'Translation failed. Please try again.',
+            ], Response::HTTP_BAD_GATEWAY);
+        }
     }
 }

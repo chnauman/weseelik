@@ -64,6 +64,7 @@ Route::group(['prefix' => 'admin', 'as' => 'admin.', 'namespace' => 'Admin', 'mi
     Route::delete('garages/destroy', 'GaragesController@massDestroy')->name('garages.massDestroy');
     Route::post('garages/media', 'GaragesController@storeMedia')->name('garages.storeMedia');
     Route::post('garages/ckmedia', 'GaragesController@storeCKEditorImages')->name('garages.storeCKEditorImages');
+    Route::post('garages/translate-arabic', 'GaragesController@translateArabic')->name('garages.translateArabic');
     Route::get('garages/assign', 'GaragesController@assignForm')->name('garages.assignForm');
     Route::post('garages/assign', 'GaragesController@assign')->name('garages.assign');
     Route::resource('garages', 'GaragesController');
