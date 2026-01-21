@@ -25,9 +25,17 @@ class UpdateGarageRequest extends FormRequest
                 'string',
                 'required',
             ],
+            'title_ar' => [
+                'string',
+                'nullable',
+            ],
             'description' => [
                 'string',
                 'required',
+            ],
+            'description_ar' => [
+                'string',
+                'nullable',
             ],
             'service_description' => [
                 'string',

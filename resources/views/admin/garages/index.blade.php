@@ -93,10 +93,10 @@
                             {{ trans('cruds.garage.fields.title') }}
                         </th>
                         <th>
-                            {{ trans('cruds.garage.fields.storefront_image') }}
+                            {{ trans('cruds.garage.fields.title_ar') }}
                         </th>
                         <th>
-                            {{ trans('cruds.garage.fields.date') }}
+                            {{ trans('cruds.garage.fields.storefront_image') }}
                         </th>
                         <th>
                             {{ trans('cruds.garage.fields.surveyor') }}
@@ -105,13 +105,10 @@
                             {{ trans('cruds.garage.fields.description') }}
                         </th>
                         <th>
-                            {{ trans('cruds.garage.fields.language') }}
+                            {{ trans('cruds.garage.fields.description_ar') }}
                         </th>
                         <th>
                             {{ trans('cruds.garage.fields.status') }}
-                        </th>
-                        <th>
-                            Confidence Level
                         </th>
                         <th>
                             Location Verification
@@ -130,6 +127,9 @@
                             <td>
                                 {{ $garage->title ?? '' }}
                             </td>
+                            <td dir="rtl">
+                                {{ $garage->title_ar ?? '' }}
+                            </td>
                             <td>
                                 @if($garage->storefront_image)
                                     <a href="{{ $garage->storefront_image->getUrl() }}" target="_blank" style="display: inline-block">
@@ -138,26 +138,16 @@
                                 @endif
                             </td>
                             <td>
-                                {{ $garage->updated_at ? $garage->updated_at->format('Y-m-d') : '' }}
-                            </td>
-                            <td>
                                 {{ $garage->surveyor->name ?? '' }}
                             </td>
                             <td>
                                 {{ $garage->description ?? '' }}
                             </td>
-                            <td>
-                                @foreach($garage->languages as $key => $item)
-                                    <span class="badge badge-info">{{ $item->title }}</span>
-                                @endforeach
+                            <td dir="rtl">
+                                {{ $garage->description_ar ?? '' }}
                             </td>
                             <td>
                                 {{ App\Models\Garage::STATUS_SELECT[$garage->status] ?? '' }}
-                            </td>
-                            <td class="confidence-value" data-garage-id="{{ $garage->id }}">
-                                @if($garage->confidence !== null)
-                                    {{ $garage->confidence }}%
-                                @endif
                             </td>
                             <td class="location-verified" data-garage-id="{{ $garage->id }}">
                                 @if($garage->location_verified)
@@ -313,9 +303,11 @@
             }
           }
           
-          // Update confidence value
+          // Update confidence value (if column exists)
           var confidenceCell = $('.confidence-value[data-garage-id="' + garageId + '"]');
-          confidenceCell.text(confidence + '%');
+          if (confidenceCell.length) {
+            confidenceCell.text(confidence + '%');
+          }
           
           // Update location verified badge
           var locationCell = $('.location-verified[data-garage-id="' + garageId + '"]');
@@ -335,7 +327,9 @@
             badgeText = locationVerified.replace(/_/g, ' ').replace(/\b\w/g, function(l) { return l.toUpperCase(); });
           }
           
-          locationCell.html('<span class="badge ' + badgeClass + '">' + badgeText + '</span>');
+          if (locationCell.length) {
+            locationCell.html('<span class="badge ' + badgeClass + '">' + badgeText + '</span>');
+          }
           
           // Hide verify button if confidence is >= 80
           if (confidence >= 80) {

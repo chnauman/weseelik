@@ -25,24 +25,52 @@
                 <span class="help-block">{{ trans('cruds.garage.fields.user_helper') }}</span>
             </div>
             <div class="form-group">
-                <label class="required" for="title">{{ trans('cruds.garage.fields.title') }}</label>
-                <input class="form-control {{ $errors->has('title') ? 'is-invalid' : '' }}" type="text" name="title" id="title" value="{{ old('title', $garage->title) }}" required>
-                @if($errors->has('title'))
-                    <div class="invalid-feedback">
-                        {{ $errors->first('title') }}
+                <div class="row">
+                    <div class="col-md-6">
+                        <label class="required" for="title">{{ trans('cruds.garage.fields.title') }}</label>
+                        <input class="form-control {{ $errors->has('title') ? 'is-invalid' : '' }}" type="text" name="title" id="title" value="{{ old('title', $garage->title) }}" required>
+                        @if($errors->has('title'))
+                            <div class="invalid-feedback">
+                                {{ $errors->first('title') }}
+                            </div>
+                        @endif
+                        <span class="help-block">{{ trans('cruds.garage.fields.title_helper') }}</span>
                     </div>
-                @endif
-                <span class="help-block">{{ trans('cruds.garage.fields.title_helper') }}</span>
+                    <div class="col-md-6">
+                        <label for="title_ar">{{ trans('cruds.garage.fields.title_ar') }}</label>
+                        <input class="form-control {{ $errors->has('title_ar') ? 'is-invalid' : '' }}" type="text" name="title_ar" id="title_ar" value="{{ old('title_ar', $garage->title_ar) }}" dir="rtl">
+                        @if($errors->has('title_ar'))
+                            <div class="invalid-feedback">
+                                {{ $errors->first('title_ar') }}
+                            </div>
+                        @endif
+                        <span class="help-block">{{ trans('cruds.garage.fields.title_ar_helper') }}</span>
+                    </div>
+                </div>
             </div>
             <div class="form-group">
-                <label class="required" for="description">{{ trans('cruds.garage.fields.description') }}</label>
-                <input class="form-control {{ $errors->has('description') ? 'is-invalid' : '' }}" type="text" name="description" id="description" value="{{ old('description', $garage->description) }}" required>
-                @if($errors->has('description'))
-                    <div class="invalid-feedback">
-                        {{ $errors->first('description') }}
+                <div class="row">
+                    <div class="col-md-6">
+                        <label class="required" for="description">{{ trans('cruds.garage.fields.description') }}</label>
+                        <textarea class="form-control {{ $errors->has('description') ? 'is-invalid' : '' }}" name="description" id="description" rows="4" required>{{ old('description', $garage->description) }}</textarea>
+                        @if($errors->has('description'))
+                            <div class="invalid-feedback">
+                                {{ $errors->first('description') }}
+                            </div>
+                        @endif
+                        <span class="help-block">{{ trans('cruds.garage.fields.description_helper') }}</span>
                     </div>
-                @endif
-                <span class="help-block">{{ trans('cruds.garage.fields.description_helper') }}</span>
+                    <div class="col-md-6">
+                        <label for="description_ar">{{ trans('cruds.garage.fields.description_ar') }}</label>
+                        <textarea class="form-control {{ $errors->has('description_ar') ? 'is-invalid' : '' }}" name="description_ar" id="description_ar" rows="4" dir="rtl">{{ old('description_ar', $garage->description_ar) }}</textarea>
+                        @if($errors->has('description_ar'))
+                            <div class="invalid-feedback">
+                                {{ $errors->first('description_ar') }}
+                            </div>
+                        @endif
+                        <span class="help-block">{{ trans('cruds.garage.fields.description_ar_helper') }}</span>
+                    </div>
+                </div>
             </div>
             <div class="form-group">
                 <label for="service_description">{{ trans('cruds.garage.fields.service_description') }}</label>
