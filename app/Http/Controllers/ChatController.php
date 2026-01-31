@@ -510,10 +510,11 @@ class ChatController extends Controller
 
                 GENERAL DECISION TREE:
                 1. New location mentioned → New search, cache location
-                2. \"any\" / \"all services\" → Use cached/historical location, no service filter
-                3. Location missing but cached → Use cached location automatically
-                4. Location missing but in history → Use from history automatically
-                5. No location anywhere → Ask for location only
+                2. User says \"anywhere\", \"all\", \"any location\", \"doesn't matter\", \"no preference\" for location → Call findGarage with location: \"anywhere\" (returns garages from random areas; DO NOT ask for a specific location)
+                3. \"any\" / \"all services\" → Use cached/historical location, no service filter
+                4. Location missing but cached → Use cached location automatically
+                5. Location missing but in history → Use from history automatically
+                6. No location anywhere → Ask for location only
 
                 CRITICAL RULES - NEVER VIOLATE:
                 ❌ NEVER ask for location if cached (especially for \"more\" requests)
@@ -521,7 +522,8 @@ class ChatController extends Controller
                 ❌ NEVER ask when user says \"more\", \"find more\", \"any\", or \"all services\"
                 ✅ ALWAYS use cached location \"{$cachedLocation}\" when available (especially for \"more\" requests)
                 ✅ ALWAYS use location from conversation history if available
-                ✅ ALWAYS call findGarage immediately when location is available (from cache, history, or message)
+                ✅ ALWAYS call findGarage immediately when location is available (from cache, history, message, or \"anywhere\")
+                When user says \"anywhere\", \"all\", \"any location\" for location → call findGarage with location: \"anywhere\". Do NOT ask for a specific location again.
 
                 FUNCTION SELECTION:
                 - findExternalService: petrol stations, ATMs, restaurants, hotels, malls, hospitals, pharmacies, parking, car rentals, insurance, gyms, supermarkets, banks (NOT garages)
@@ -554,7 +556,7 @@ class ChatController extends Controller
                         'properties' => [
                             'location' => [
                                 'type' => 'string',
-                                'description' => 'REQUIRED: The location or area name where the user wants to find a garage. For multiple locations (e.g., when user says "both"), you can provide comma-separated locations like "Dasma, Ahmadi" or call the function multiple times (once for each location). CRITICAL: If a cached location is shown in the system prompt, you MUST use that cached location (especially for "more" requests). If user says "both" or "both locations", check the conversation history for the two most recent locations mentioned and use both of them. If no cached location, intelligently match the user\'s location to one of the available areas listed in the system prompt. Handle spelling variations (e.g., "shuaikh" → "shuwaikh industrial"), partial matches, and area suffixes. Always use the EXACT area name from the available areas list when a match is found. Only use the user\'s exact wording if no match exists in the available areas list. Never call this function without a location - use cached location if available.'
+                                'description' => 'REQUIRED: The location or area name where the user wants to find a garage. If the user says "anywhere", "all", "any location", "doesn\'t matter", "no preference", or similar when asked for location, use location: "anywhere" to return garages from various areas (do NOT ask again for a specific location). For multiple locations (e.g., when user says "both"), you can provide comma-separated locations like "Dasma, Ahmadi" or call the function multiple times (once for each location). CRITICAL: If a cached location is shown in the system prompt, you MUST use that cached location (especially for "more" requests). If user says "both" or "both locations", check the conversation history for the two most recent locations mentioned and use both of them. If no cached location, intelligently match the user\'s location to one of the available areas listed in the system prompt. Handle spelling variations (e.g., "shuaikh" → "shuwaikh industrial"), partial matches, and area suffixes. Always use the EXACT area name from the available areas list when a match is found. Only use the user\'s exact wording if no match exists in the available areas list. Never call this function without a location - use "anywhere" when user wants no specific area, or use cached location if available.'
                             ],
                             'vehicle_brand' => [
                                 'type' => 'string',
@@ -1382,8 +1384,9 @@ class ChatController extends Controller
         $selectedSpecializations = $filters['selected_specializations'] ?? [];
         $selectedCategories = $filters['selected_categories'] ?? [];
         
-        // Match areas for this location
-        $matchedAreas = $this->matchAreasFromUserRequest($location);
+        // When user said "anywhere" / "all" for location, search across all areas (random mix)
+        $searchAnywhere = $this->isAnywhereLocation($location);
+        $matchedAreas = $searchAnywhere ? [] : $this->matchAreasFromUserRequest($location);
         
         // Kuwait country ID is 112
         $query = Garage::query()
@@ -1402,31 +1405,33 @@ class ChatController extends Controller
             }
         }
         
-        // Filter by location using smart area matching
-        if (!empty($matchedAreas)) {
-            $query->where(function ($q) use ($matchedAreas) {
-                $firstArea = true;
-                foreach ($matchedAreas as $matchedArea) {
-                    if ($firstArea) {
-                        $q->where('area', $matchedArea);
-                        $firstArea = false;
-                    } else {
-                        $q->orWhere('area', $matchedArea);
+        // Filter by location using smart area matching (skip when "anywhere")
+        if (!$searchAnywhere) {
+            if (!empty($matchedAreas)) {
+                $query->where(function ($q) use ($matchedAreas) {
+                    $firstArea = true;
+                    foreach ($matchedAreas as $matchedArea) {
+                        if ($firstArea) {
+                            $q->where('area', $matchedArea);
+                            $firstArea = false;
+                        } else {
+                            $q->orWhere('area', $matchedArea);
+                        }
                     }
-                }
-            });
-        } else {
-            // Fallback: try exact match first, then LIKE
-            $query->where(function ($q) use ($location) {
-                $q->where('area', $location)
-                    ->orWhere('city', $location)
-                    ->orWhere('governate', $location)
-                    ->orWhere(function ($subQ) use ($location) {
-                        $subQ->where('area', 'like', "%{$location}%")
-                            ->orWhere('city', 'like', "%{$location}%")
-                            ->orWhere('governate', 'like', "%{$location}%");
-                    });
-            });
+                });
+            } else {
+                // Fallback: try exact match first, then LIKE
+                $query->where(function ($q) use ($location) {
+                    $q->where('area', $location)
+                        ->orWhere('city', $location)
+                        ->orWhere('governate', $location)
+                        ->orWhere(function ($subQ) use ($location) {
+                            $subQ->where('area', 'like', "%{$location}%")
+                                ->orWhere('city', 'like', "%{$location}%")
+                                ->orWhere('governate', 'like', "%{$location}%");
+                        });
+                });
+            }
         }
         
         // Apply filters
@@ -1474,41 +1479,47 @@ class ChatController extends Controller
             });
         }
         
-        // Fetch garages
+        // When "anywhere", order randomly for variety; otherwise by rating/visits
+        if ($searchAnywhere) {
+            $query->inRandomOrder();
+        }
         $garages = $query->with(['tags', 'services', 'specializations', 'categories'])
-            ->orderBy('rating', 'desc')
-            ->orderBy('no_of_visits', 'desc')
+            ->when(!$searchAnywhere, function ($q) {
+                $q->orderBy('rating', 'desc')->orderBy('no_of_visits', 'desc');
+            })
             ->get();
         
-        // Filter to ensure location matches exactly
-        $locationNormalized = strtolower(trim($location));
-        $matchedAreasNormalized = array_map(function($area) {
-            return strtolower(trim($area));
-        }, $matchedAreas);
-        
-        $garages = $garages->filter(function($garage) use ($matchedAreasNormalized, $locationNormalized) {
-            $garageArea = strtolower(trim($garage->area ?? ''));
-            $garageCity = strtolower(trim($garage->city ?? ''));
-            $garageGovernate = strtolower(trim($garage->governate ?? ''));
+        // Filter to ensure location matches exactly (skip when "anywhere")
+        if (!$searchAnywhere) {
+            $locationNormalized = strtolower(trim($location));
+            $matchedAreasNormalized = array_map(function($area) {
+                return strtolower(trim($area));
+            }, $matchedAreas);
             
-            if (!empty($matchedAreasNormalized)) {
-                foreach ($matchedAreasNormalized as $matchedArea) {
-                    if ($garageArea === $matchedArea || 
-                        $garageCity === $matchedArea || 
-                        $garageGovernate === $matchedArea) {
-                        return true;
+            $garages = $garages->filter(function($garage) use ($matchedAreasNormalized, $locationNormalized) {
+                $garageArea = strtolower(trim($garage->area ?? ''));
+                $garageCity = strtolower(trim($garage->city ?? ''));
+                $garageGovernate = strtolower(trim($garage->governate ?? ''));
+                
+                if (!empty($matchedAreasNormalized)) {
+                    foreach ($matchedAreasNormalized as $matchedArea) {
+                        if ($garageArea === $matchedArea || 
+                            $garageCity === $matchedArea || 
+                            $garageGovernate === $matchedArea) {
+                            return true;
+                        }
                     }
+                    return false;
                 }
-                return false;
-            }
-            
-            return ($garageArea === $locationNormalized || 
-                    $garageCity === $locationNormalized || 
-                    $garageGovernate === $locationNormalized ||
-                    strpos($garageArea, $locationNormalized) !== false ||
-                    strpos($garageCity, $locationNormalized) !== false ||
-                    strpos($garageGovernate, $locationNormalized) !== false);
-        });
+                
+                return ($garageArea === $locationNormalized || 
+                        $garageCity === $locationNormalized || 
+                        $garageGovernate === $locationNormalized ||
+                        strpos($garageArea, $locationNormalized) !== false ||
+                        strpos($garageCity, $locationNormalized) !== false ||
+                        strpos($garageGovernate, $locationNormalized) !== false);
+            });
+        }
         
         // Format garages
         $geocodingApiKey = env('GOOGLE_MAPS_API_KEY');
@@ -1885,6 +1896,27 @@ class ChatController extends Controller
         
         // CRITICAL: If multiple locations detected, search each separately with limit per location
         $isMultipleLocations = count($locations) > 1;
+        
+        // When user said "anywhere" / "all" for location, return garages from random areas (no location filter)
+        if (count($locations) === 1 && $this->isAnywhereLocation($locations[0])) {
+            $filters = [
+                'selected_tags' => $selectedTags,
+                'selected_services' => $selectedServices,
+                'selected_specializations' => $selectedSpecializations,
+                'selected_categories' => $selectedCategories,
+            ];
+            $anywhereResults = $this->searchGaragesForLocation('anywhere', $filters, $shownGarageIds, $limit);
+            return [
+                'status' => 'success',
+                'action' => 'find_garage',
+                'count' => count($anywhereResults),
+                'total_count' => count($anywhereResults),
+                'results' => $anywhereResults,
+                '_all_garages' => $anywhereResults,
+                '_offset' => count($anywhereResults),
+                '_locations' => ['anywhere'],
+            ];
+        }
         
         // Handle "more" requests for multiple locations
         // CRITICAL: Check search state FIRST - if previous search had multiple locations, 
@@ -2747,6 +2779,46 @@ class ChatController extends Controller
         return null;
     }
 
+
+    /**
+     * Check if the user meant "anywhere" / "all" for location (no specific area).
+     *
+     * @param string|null $location
+     * @return bool
+     */
+    private function isAnywhereLocation(?string $location): bool
+    {
+        if ($location === null || trim($location) === '') {
+            return false;
+        }
+        $normalized = strtolower(trim($location));
+        $anywherePhrases = [
+            'anywhere',
+            'all',
+            'any',
+            'any location',
+            'any area',
+            'any area is fine',
+            'all areas',
+            'all locations',
+            'doesn\'t matter',
+            'doesnt matter',
+            'don\'t care',
+            'dont care',
+            'no preference',
+            'no matter',
+            'everywhere',
+            'whatever',
+            'any place',
+            'all places',
+        ];
+        foreach ($anywherePhrases as $phrase) {
+            if ($normalized === $phrase || strpos($normalized, $phrase) === 0) {
+                return true;
+            }
+        }
+        return false;
+    }
 
     /**
      * Get unique areas from database (cached)
