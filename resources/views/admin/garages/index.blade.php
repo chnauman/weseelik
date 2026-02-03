@@ -70,11 +70,9 @@
                                 <div class="col-md-12">
                                     <button type="submit" class="btn btn-sm btn-primary">Apply Filters</button>
                                     <a href="{{ route('admin.garages.index') }}" class="btn btn-sm btn-secondary">Reset</a>
-                                    @if(request()->hasAny(['status', 'location_verified', 'area', 'tags', 'verified', 'unverified']))
-                                        <span class="badge badge-info ml-2">
-                                            {{ $garages->count() }} garage(s) found
-                                        </span>
-                                    @endif
+                                    <span class="badge badge-info ml-2">
+                                        {{ $garages->count() }} garage(s) found
+                                    </span>
                                 </div>
                             </div>
                         </form>
@@ -213,6 +211,30 @@
             allowClear: true,
             width: '100%'
         });
+
+        // Ensure filter form submits with Select2 values (tags) and correct GET params
+        $('#filterForm').on('submit', function(e) {
+            e.preventDefault();
+            var base = $(this).attr('action');
+            var params = [];
+            var status = $('#status').val();
+            var locationVerified = $('#location_verified').val();
+            var area = $('#area').val();
+            var tags = $('#tags').val(); // Select2 returns array of selected values
+
+            if (status) params.push('status=' + encodeURIComponent(status));
+            if (locationVerified) params.push('location_verified=' + encodeURIComponent(locationVerified));
+            if (area) params.push('area=' + encodeURIComponent(area));
+            if (tags && tags.length) {
+                tags.forEach(function(t) {
+                    params.push('tags[]=' + encodeURIComponent(t));
+                });
+            }
+            var qs = params.length ? '?' + params.join('&') : '';
+            window.location.href = base + qs;
+            return false;
+        });
+
   let dtButtons = $.extend(true, [], $.fn.dataTable.defaults.buttons)
 @can('garage_delete')
   let deleteButtonTrans = '{{ trans('global.datatables.delete') }}'

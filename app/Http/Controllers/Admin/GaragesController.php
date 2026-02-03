@@ -32,47 +32,54 @@ class GaragesController extends Controller
 
         $query = Garage::with(['user', 'country', 'tags', 'languages', 'specializations', 'services', 'categories', 'media']);
 
-        // Filter by status
-        if ($request->has('status') && $request->status !== '') {
-            $query->where('status', $request->status);
+        // Filter by status (GET param)
+        $status = $request->query('status');
+        if ($status !== null && $status !== '') {
+            $query->where('status', $status);
         }
 
-        // Filter by location_verified
-        if ($request->has('location_verified') && $request->location_verified !== '') {
-            $query->where('location_verified', $request->location_verified);
+        // Filter by location_verified (GET param)
+        $locationVerified = $request->query('location_verified');
+        if ($locationVerified !== null && $locationVerified !== '') {
+            $query->where('location_verified', $locationVerified);
         }
 
-        // Filter by area
-        if ($request->has('area') && $request->area !== '') {
-            $query->where('area', $request->area);
+        // Filter by area (GET param)
+        $area = $request->query('area');
+        if ($area !== null && $area !== '') {
+            $query->where('area', $area);
         }
 
-        // Filter by tags (multiple tags)
-        if ($request->has('tags') && is_array($request->tags) && count($request->tags) > 0) {
-            $tagIds = array_filter($request->tags);
-            if (count($tagIds) > 0) {
-                $query->whereHas('tags', function($q) use ($tagIds) {
-                    $q->whereIn('tags.id', $tagIds);
-                });
-            }
+        // Filter by tags: accept array (tags[]=1&tags[]=2) or single value
+        $tagsParam = $request->query('tags');
+        $tagIds = [];
+        if (is_array($tagsParam)) {
+            $tagIds = array_filter(array_map('intval', $tagsParam));
+        } elseif (is_string($tagsParam) && $tagsParam !== '') {
+            $tagIds = array_filter(array_map('intval', explode(',', $tagsParam)));
+        }
+        if (count($tagIds) > 0) {
+            $query->whereHas('tags', function ($q) use ($tagIds) {
+                $q->whereIn('tags.id', $tagIds);
+            });
         }
 
         // Filter for verified garages (status = approved AND location_verified = verified)
-        if ($request->has('verified') && $request->verified == '1') {
+        if ($request->query('verified') == '1') {
             $query->where('status', 'approved')
                   ->where('location_verified', 'verified');
         }
 
         // Filter for unverified garages
-        if ($request->has('unverified') && $request->unverified == '1') {
-            $query->where(function($q) {
+        if ($request->query('unverified') == '1') {
+            $query->where(function ($q) {
                 $q->where('status', '!=', 'approved')
                   ->orWhere('location_verified', '!=', 'verified')
                   ->orWhereNull('location_verified');
             });
         }
 
-        $garages = $query->get();
+        $garages = $query->orderBy('title')->get();
 
         // Get filter options for the view
         $tags = Tag::pluck('title', 'id');
