@@ -15,11 +15,14 @@ class FixGarageLocations extends Command
                             {--dry-run : Show what would be updated without saving}
                             {--limit= : Limit number of garages to process}';
 
-    protected $description = 'Update red-pin garages only: search by title in Kuwait, take first result, update maps_share_link and coordinates. Green-pin garages are left unchanged.';
+    protected $description = 'Update red-pin garages only: search by title in Kuwait, take first good match, update maps_share_link, address, area, governate, city, block and coordinates so they show green. Green-pin garages are left unchanged.';
 
     private const KUWAIT_CENTER_LAT = 29.3759;
     private const KUWAIT_CENTER_LNG = 47.9774;
     private const DELAY_SECONDS = 2;
+    /** Minimum name similarity to consider a match "good" (> 50%). */
+    private const GOOD_MATCH_THRESHOLD = 51;
+    private const SKIP_NO_GOOD_MATCH = 'no_good_match';
 
     public function __construct(
         private MapGarageTitleMatchService $titleMatchService
@@ -55,13 +58,14 @@ class FixGarageLocations extends Command
             return Command::SUCCESS;
         }
 
-        $this->info("Processing {$total} garage(s). Green-pin garages are skipped; only red-pin garages are updated.");
+        $this->info("Processing {$total} garage(s). Green-pin garages are skipped; red-pin garages are updated with first good match in Kuwait so they turn green.");
         $bar = $this->output->createProgressBar($total);
         $bar->start();
 
         $updated = 0;
         $skippedGreen = 0;
         $skippedNoResult = 0;
+        $skippedNoGoodMatch = 0;
         $failed = 0;
 
         foreach ($garages as $garage) {
@@ -79,6 +83,14 @@ class FixGarageLocations extends Command
                 $result = $this->resolveLocationForRedGarage($garage, $placesKey);
                 if ($result === null) {
                     $skippedNoResult++;
+                    $bar->advance();
+                    if ($total > 1) {
+                        sleep(self::DELAY_SECONDS);
+                    }
+                    continue;
+                }
+                if ($result === self::SKIP_NO_GOOD_MATCH) {
+                    $skippedNoGoodMatch++;
                     $bar->advance();
                     if ($total > 1) {
                         sleep(self::DELAY_SECONDS);
@@ -115,9 +127,10 @@ class FixGarageLocations extends Command
         $this->table(
             ['Status', 'Count'],
             [
-                ['Updated (red pins)', $updated],
+                ['Updated (red → green)', $updated],
                 ['Skipped (green pin – left unchanged)', $skippedGreen],
                 ['Skipped (no result for title search)', $skippedNoResult],
+                ['Skipped (no good match)', $skippedNoGoodMatch],
                 ['Failed', $failed],
             ]
         );
@@ -126,50 +139,82 @@ class FixGarageLocations extends Command
     }
 
     /**
-     * Resolve location for a red-pin garage: search by title in Kuwait, take first result.
-     * Returns update array, null to skip (no title / no result), false on failure.
+     * Resolve location for a red-pin garage: search by title in Kuwait, take first good match.
+     * Returns update array, null to skip (no title / no results), SKIP_NO_GOOD_MATCH when no good match, false on failure.
      */
-    private function resolveLocationForRedGarage(Garage $garage, string $placesKey): array|null|false
+    private function resolveLocationForRedGarage(Garage $garage, string $placesKey): array|null|false|string
     {
         $queryString = $this->buildTitleSearchQuery($garage);
         if ($queryString === '') {
             return null;
         }
 
-        $place = $this->placesTextSearch($queryString, $placesKey);
-        if ($place === null) {
+        $results = $this->placesTextSearchResults($queryString, $placesKey);
+        if ($results === null) {
             return null;
         }
-
-        $location = $place['geometry']['location'] ?? null;
-        $name = $place['name'] ?? null;
-        $placeId = $place['place_id'] ?? null;
-        $formattedAddress = $place['formatted_address'] ?? $place['vicinity'] ?? null;
-
-        if (!$location || !isset($location['lat'], $location['lng'])) {
+        if ($results === false) {
             return false;
         }
 
-        $confidence = $this->nameSimilarity($garage->title ?? '', $name ?? '');
-        $verified = $this->verifiedFromConfidence($confidence);
+        $garageTitle = $garage->title ?? '';
+        foreach ($results as $place) {
+            $location = $place['geometry']['location'] ?? null;
+            $name = $place['name'] ?? null;
+            $placeId = $place['place_id'] ?? null;
+            $formattedAddress = $place['formatted_address'] ?? $place['vicinity'] ?? null;
 
-        $mapsLink = $this->buildMapsShareLink(
-            $name,
-            $formattedAddress,
-            $placeId,
-            (float) $location['lat'],
-            (float) $location['lng']
-        );
+            if (!$location || !isset($location['lat'], $location['lng'])) {
+                continue;
+            }
 
-        return [
-            'latitude' => (string) $location['lat'],
-            'longitude' => (string) $location['lng'],
-            'google_place_id' => $placeId,
-            'is_google_maps' => true,
-            'maps_share_link' => $mapsLink,
-            'confidence' => $confidence,
-            'location_verified' => $verified,
-        ];
+            // Only accept results in Kuwait (address must mention Kuwait)
+            if ($formattedAddress !== null && stripos($formattedAddress, 'Kuwait') === false) {
+                continue;
+            }
+
+            $confidence = $this->nameSimilarity($garageTitle, $name ?? '');
+            if ($confidence < self::GOOD_MATCH_THRESHOLD) {
+                continue;
+            }
+
+            $verified = $this->verifiedFromConfidence($confidence);
+            $mapsLink = $this->buildMapsShareLink(
+                $name,
+                $formattedAddress,
+                $placeId,
+                (float) $location['lat'],
+                (float) $location['lng']
+            );
+
+            $update = [
+                'latitude' => (string) $location['lat'],
+                'longitude' => (string) $location['lng'],
+                'google_place_id' => $placeId,
+                'is_google_maps' => true,
+                'maps_share_link' => $mapsLink,
+                'confidence' => $confidence,
+                'location_verified' => $verified,
+            ];
+
+            if ($formattedAddress !== null && trim($formattedAddress) !== '') {
+                $update['address'] = trim($formattedAddress);
+            }
+
+            // Enrich with area, governate, city, block from Place Details (Kuwait address components)
+            $addressFields = $this->getPlaceDetailsAddressFields($placeId, $placesKey);
+            if ($addressFields !== null) {
+                foreach ($addressFields as $key => $value) {
+                    if ($value !== null && trim((string) $value) !== '') {
+                        $update[$key] = trim((string) $value);
+                    }
+                }
+            }
+
+            return $update;
+        }
+
+        return self::SKIP_NO_GOOD_MATCH;
     }
 
     /** Search query for red garages: "{title}, Kuwait" only. */
@@ -182,28 +227,32 @@ class FixGarageLocations extends Command
         return $title . ', Kuwait';
     }
 
-    private function placesTextSearch(string $query, string $apiKey): ?array
+    /**
+     * Places Text Search in Kuwait only. Returns array of results, null if no results, false on API/network failure.
+     */
+    private function placesTextSearchResults(string $query, string $apiKey): array|null|false
     {
         $url = 'https://maps.googleapis.com/maps/api/place/textsearch/json';
         $params = [
             'query' => $query,
             'location' => self::KUWAIT_CENTER_LAT . ',' . self::KUWAIT_CENTER_LNG,
+            'region' => 'kw', // Restrict to Kuwait (ccTLD)
             'key' => $apiKey,
         ];
 
         try {
             $response = Http::timeout(15)->get($url, $params);
             if (!$response->successful()) {
-                return null;
+                return false;
             }
             $data = $response->json();
             if (($data['status'] ?? '') !== 'OK' || empty($data['results'])) {
                 return null;
             }
-            return $data['results'][0];
+            return $data['results'];
         } catch (\Throwable $e) {
             Log::warning('Places Text Search error: ' . $e->getMessage());
-            return null;
+            return false;
         }
     }
 
@@ -267,5 +316,86 @@ class FixGarageLocations extends Command
             return 'https://www.google.com/maps/place/?q=place_id:' . urlencode($placeId);
         }
         return 'https://www.google.com/maps/search/?api=1&query=' . $lat . ',' . $lng;
+    }
+
+    /**
+     * Fetch Place Details address_components and map to Garage fields (address, area, governate, city, block).
+     * Returns array with only non-empty keys, or null on failure.
+     */
+    private function getPlaceDetailsAddressFields(string $placeId, string $apiKey): ?array
+    {
+        $url = 'https://maps.googleapis.com/maps/api/place/details/json';
+        $params = [
+            'place_id' => $placeId,
+            'fields' => 'address_components,formatted_address',
+            'key' => $apiKey,
+        ];
+
+        try {
+            $response = Http::timeout(10)->get($url, $params);
+            if (!$response->successful()) {
+                return null;
+            }
+            $data = $response->json();
+            if (($data['status'] ?? '') !== 'OK' || !isset($data['result'])) {
+                return null;
+            }
+
+            $result = $data['result'];
+            $components = $result['address_components'] ?? [];
+            $out = [];
+
+            $locality = null;
+            $admin1 = null;
+            $admin2 = null;
+            $sublocality = null;
+            $country = null;
+
+            foreach ($components as $c) {
+                $types = $c['types'] ?? [];
+                $long = $c['long_name'] ?? '';
+                $short = $c['short_name'] ?? '';
+                if (in_array('country', $types, true)) {
+                    $country = $long;
+                } elseif (in_array('administrative_area_level_1', $types, true)) {
+                    $admin1 = $long;
+                } elseif (in_array('administrative_area_level_2', $types, true)) {
+                    $admin2 = $long;
+                } elseif (in_array('locality', $types, true)) {
+                    $locality = $long;
+                } elseif ((in_array('sublocality', $types, true) || in_array('sublocality_level_1', $types, true)) && $long !== '') {
+                    $sublocality = $long;
+                }
+            }
+
+            // Only use if result is in Kuwait
+            if ($country !== null && stripos($country, 'Kuwait') === false) {
+                return null;
+            }
+
+            if ($result['formatted_address'] ?? '') {
+                $out['address'] = trim($result['formatted_address']);
+            }
+            // Kuwait: governate = admin1 (e.g. Hawalli, Al Ahmadi)
+            if ($admin1 !== null) {
+                $out['governate'] = $admin1;
+            }
+            // Area: locality or admin2 (e.g. Salmiya, Fintas)
+            if ($locality !== null) {
+                $out['area'] = $locality;
+                $out['city'] = $locality;
+            } elseif ($admin2 !== null) {
+                $out['area'] = $admin2;
+                $out['city'] = $admin2;
+            }
+            if ($sublocality !== null) {
+                $out['block'] = $sublocality;
+            }
+
+            return $out;
+        } catch (\Throwable $e) {
+            Log::warning('Place Details address_components error: ' . $e->getMessage());
+            return null;
+        }
     }
 }
