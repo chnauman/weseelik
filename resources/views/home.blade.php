@@ -187,6 +187,9 @@
             </div>
         </div>
     </div>
+
+    {{-- Garages Map Section --}}
+    @include('partials.dashboard-map')
 </div>
 @endsection
 
@@ -679,6 +682,39 @@ $(document).ready(function() {
     cursor: auto;
     background-color: #fff;
     border-color: #ced2d8;
+}
+/* Dashboard map section */
+.dashboard-map-container {
+    width: 100%;
+    height: 450px;
+    min-height: 400px;
+    border-radius: 0.25rem;
+    overflow: hidden;
+}
+.dashboard-map-legend {
+    display: flex;
+    gap: 1.5rem;
+    flex-wrap: wrap;
+    align-items: center;
+}
+.dashboard-map-legend .map-legend-item {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.9rem;
+}
+.dashboard-map-legend .map-legend-pin {
+    width: 24px;
+    height: 32px;
+    background-size: contain;
+    background-repeat: no-repeat;
+    background-position: center;
+}
+.dashboard-map-legend .map-legend-pin--green {
+    background-image: url('https://maps.google.com/mapfiles/ms/icons/green.png');
+}
+.dashboard-map-legend .map-legend-pin--red {
+    background-image: url('https://maps.google.com/mapfiles/ms/icons/red-dot.png');
 }
 </style>
 @endsection

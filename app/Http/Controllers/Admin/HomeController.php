@@ -1,9 +1,11 @@
 <?php
 
 namespace App\Http\Controllers\Admin;
+
 use App\Models\Garage;
 use App\Models\User;
 use App\Models\Tag;
+use App\Services\MapGarageTitleMatchService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Pagination\Paginator;
@@ -11,6 +13,10 @@ use Illuminate\Http\Request;
 
 class HomeController
 {
+    public function __construct(
+        private MapGarageTitleMatchService $titleMatchService
+    ) {}
+
     public function index()
     {
         // Total Users
@@ -104,6 +110,28 @@ class HomeController
         // All tags for filters
         $allTags = Tag::pluck('title', 'id');
 
+        // Map data for dashboard (garages with location for maps section)
+        $mapGarages = Garage::query()
+            ->whereNull('deleted_at')
+            ->whereNotNull('maps_share_link')
+            ->whereNotNull('latitude')
+            ->whereNotNull('longitude')
+            ->orderBy('title')
+            ->get();
+        $mapMarkers = $mapGarages->map(function (Garage $garage) {
+            return [
+                'id' => $garage->id,
+                'lat' => (float) $garage->latitude,
+                'lng' => (float) $garage->longitude,
+                'title' => $garage->title ?? '',
+                'title_ar' => $garage->title_ar ?? '',
+                'maps_share_link' => $garage->maps_share_link,
+                'title_matches' => $this->titleMatchService->titleMatches($garage),
+            ];
+        })->values()->all();
+        $mapKey = env('GOOGLE_MAPS_API_KEY');
+        $mapMarkersJson = json_encode($mapMarkers, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT);
+
         // Check if this is an AJAX request for area pagination
         if (request()->ajax() || request()->has('area_pagination')) {
             return $this->getAreaPaginationData();
@@ -124,7 +152,10 @@ class HomeController
             'garagesByCountry',
             'recentGarages',
             'areas',
-            'allTags'
+            'allTags',
+            'mapMarkers',
+            'mapMarkersJson',
+            'mapKey'
         ));
     }
 

@@ -9,7 +9,6 @@ Route::get('/', function () {
     return view('user.home');
 })->name('home');
 
-Route::get('/maps', [App\Http\Controllers\MapController::class, 'index'])->name('maps.index');
 Route::get('/privacy-policy', function () {
     return view('user.privacy-policy');
 })->name('privacy-policy');
