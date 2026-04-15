@@ -134,6 +134,10 @@ Route::get('/chat-test', function () {
     return view('chat-test');
 })->name('chat-test');
 
+Route::get('/chat-experimental', function () {
+    return view('chat-experimental');
+})->name('chat-experimental');
+
 // Fetch Garages from Google Maps
 Route::get('/fetch-garages', [App\Http\Controllers\Admin\FetchGaragesController::class, 'index'])->name('fetch-garages.index');
 Route::post('/fetch-garages/fetch', [App\Http\Controllers\Admin\FetchGaragesController::class, 'fetch'])->name('fetch-garages.fetch');

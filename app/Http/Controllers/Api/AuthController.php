@@ -964,4 +964,34 @@ class AuthController extends Controller
             ], 500);
         }
     }
+
+    /**
+     * Delete user account (soft delete)
+     *
+     * @param  \Illuminate\Http\Request  $request
+     * @return \Illuminate\Http\JsonResponse
+     */
+    public function deleteAccount(Request $request)
+    {
+        try {
+            $user = $request->user();
+
+            // Revoke all tokens
+            $user->tokens()->delete();
+
+            // Soft delete user
+            $user->delete();
+
+            return response()->json([
+                'success' => true,
+                'message' => 'User account deleted successfully'
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to delete account',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
 }

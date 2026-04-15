@@ -27,6 +27,10 @@ Route::group(['prefix' => 'v1', 'as' => 'api.'], function () {
     });
 });
 
+Route::group(['prefix' => 'v2', 'as' => 'api.v2.'], function () {
+    Route::post('chat', [App\Http\Controllers\ExperimentalChatController::class, 'handleChat'])->name('chat');
+});
+
 Route::group(['prefix' => 'v1', 'as' => 'api.', 'namespace' => 'Api\V1\Admin'], function () {
 
     // Public Auth Routes
@@ -77,6 +81,7 @@ Route::group(['prefix' => 'v1', 'as' => 'api.', 'namespace' => 'Api\V1\Admin'], 
         Route::post('/change-phone-number', [AuthController::class, 'changePhoneNumber']);
         Route::post('/update-user-details', [AuthController::class, 'updateUserDetails']);
         Route::get('/user-profile', [AuthController::class, 'getUserProfile']);
+        Route::post('/delete-account', [AuthController::class, 'deleteAccount']);
 
         Route::post('bookings/create', 'BookingApiController@createBooking')->name('bookings.createBooking');
         Route::get('bookings/get-business-bookings', 'BookingApiController@getBusinessBookings')->name('bookings.getBusinessBookings');
