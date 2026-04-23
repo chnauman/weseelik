@@ -723,13 +723,23 @@ class GaragesApiController extends Controller
         ->whereRaw('LOWER(status) = ?', ['approved'])
         ->get()
         ->map(function ($garage) {
+            $logo = $garage->getMedia('logo')->first();
+            $storefront = $garage->getMedia('storefront_image')->first();
+            
+            $image = null;
+            if ($logo && file_exists($logo->getPath())) {
+                $image = $logo->getUrl();
+            } elseif ($storefront && file_exists($storefront->getPath())) {
+                $image = $storefront->getUrl();
+            }
+
             return [
                 'id' => $garage->id,
                 'title' => $garage->title,
                 'description' => $garage->description,
                 'latitude' => $garage->latitude,
                 'longitude' => $garage->longitude,
-                'image' => $garage->getFirstMediaUrl('logo') ?: $garage->getFirstMediaUrl('storefront_image')
+                'image' => $image ?: asset('images/wiseelik-logo-mascot.png')
             ];
         });
 

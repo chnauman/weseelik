@@ -14,31 +14,34 @@ class GarageResource extends JsonResource
         if ($this->resource instanceof \App\Models\Garage) {
         // Get all logos
         $logos = $this->getMedia('logo')->map(function ($media) {
+            $exists = file_exists($media->getPath());
             return [
                 'id' => $media->id,
-                'url' => $media->getUrl(),
-                'thumbnail' => $media->getUrl('thumb'),
-                'preview' => $media->getUrl('preview'),
+                'url' => $exists ? $media->getUrl() : asset('images/wiseelik-logo-mascot.png'),
+                'thumbnail' => $exists ? $media->getUrl('thumb') : asset('images/wiseelik-logo-mascot.png'),
+                'preview' => $exists ? $media->getUrl('preview') : asset('images/wiseelik-logo-mascot.png'),
             ];
         });
 
         // Get all storefront images
         $storefrontImages = $this->getMedia('storefront_image')->map(function ($media) {
+            $exists = file_exists($media->getPath());
             return [
                 'id' => $media->id,
-                'url' => $media->getUrl(),
-                'thumbnail' => $media->getUrl('thumb'),
-                'preview' => $media->getUrl('preview'),
+                'url' => $exists ? $media->getUrl() : asset('images/car-hero.png'),
+                'thumbnail' => $exists ? $media->getUrl('thumb') : asset('images/car-hero.png'),
+                'preview' => $exists ? $media->getUrl('preview') : asset('images/car-hero.png'),
             ];
         });
 
         // Get all gallery images
         $gallery = $this->getMedia('gallery')->map(function ($media) {
+            $exists = file_exists($media->getPath());
             return [
                 'id' => $media->id,
-                'url' => $media->getUrl(),
-                'thumbnail' => $media->getUrl('thumb'),
-                'preview' => $media->getUrl('preview'),
+                'url' => $exists ? $media->getUrl() : asset('images/car-hero.png'),
+                'thumbnail' => $exists ? $media->getUrl('thumb') : asset('images/car-hero.png'),
+                'preview' => $exists ? $media->getUrl('preview') : asset('images/car-hero.png'),
             ];
         });
 

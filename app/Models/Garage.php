@@ -103,9 +103,10 @@ class Garage extends Model implements HasMedia
     {
         $file = $this->getMedia('logo')->last();
         if ($file) {
-            $file->url       = $file->getUrl();
-            $file->thumbnail = $file->getUrl('thumb');
-            $file->preview   = $file->getUrl('preview');
+            $exists = file_exists($file->getPath());
+            $file->url       = $exists ? $file->getUrl() : asset('images/wiseelik-logo-mascot.png');
+            $file->thumbnail = $exists ? $file->getUrl('thumb') : asset('images/wiseelik-logo-mascot.png');
+            $file->preview   = $exists ? $file->getUrl('preview') : asset('images/wiseelik-logo-mascot.png');
         }
 
         return $file;
@@ -115,9 +116,10 @@ class Garage extends Model implements HasMedia
     {
         $file = $this->getMedia('storefront_image')->last();
         if ($file) {
-            $file->url       = $file->getUrl();
-            $file->thumbnail = $file->getUrl('thumb');
-            $file->preview   = $file->getUrl('preview');
+            $exists = file_exists($file->getPath());
+            $file->url       = $exists ? $file->getUrl() : asset('images/car-hero.png');
+            $file->thumbnail = $exists ? $file->getUrl('thumb') : asset('images/car-hero.png');
+            $file->preview   = $exists ? $file->getUrl('preview') : asset('images/car-hero.png');
         }
 
         return $file;
@@ -127,9 +129,10 @@ class Garage extends Model implements HasMedia
     {
         $files = $this->getMedia('gallery');
         $files->each(function ($item) {
-            $item->url       = $item->getUrl();
-            $item->thumbnail = $item->getUrl('thumb');
-            $item->preview   = $item->getUrl('preview');
+            $exists = file_exists($item->getPath());
+            $item->url       = $exists ? $item->getUrl() : asset('images/car-hero.png');
+            $item->thumbnail = $exists ? $item->getUrl('thumb') : asset('images/car-hero.png');
+            $item->preview   = $exists ? $item->getUrl('preview') : asset('images/car-hero.png');
         });
 
         return $files;
