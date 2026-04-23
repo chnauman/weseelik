@@ -29,13 +29,13 @@ class Garage extends Model implements HasMedia
     ];
 
     public const STATUS_SELECT = [
-        'pending'  => 'Pending',
+        'pending' => 'Pending',
         'approved' => 'Approved',
     ];
 
     public const REGISTERED_BY_SELECT = [
         'surveyor' => 'Surveyor',
-        'self'     => 'Self',
+        'self' => 'Self',
     ];
 
     protected $fillable = [
@@ -103,10 +103,9 @@ class Garage extends Model implements HasMedia
     {
         $file = $this->getMedia('logo')->last();
         if ($file) {
-            $exists = file_exists($file->getPath());
-            $file->url       = $exists ? $file->getUrl() : asset('images/wiseelik-logo-mascot.png');
-            $file->thumbnail = $exists ? $file->getUrl('thumb') : asset('images/wiseelik-logo-mascot.png');
-            $file->preview   = $exists ? $file->getUrl('preview') : asset('images/wiseelik-logo-mascot.png');
+            $file->url = $file->getUrl();
+            $file->thumbnail = $file->getUrl('thumb');
+            $file->preview = $file->getUrl('preview');
         }
 
         return $file;
@@ -116,10 +115,9 @@ class Garage extends Model implements HasMedia
     {
         $file = $this->getMedia('storefront_image')->last();
         if ($file) {
-            $exists = file_exists($file->getPath());
-            $file->url       = $exists ? $file->getUrl() : asset('images/car-hero.png');
-            $file->thumbnail = $exists ? $file->getUrl('thumb') : asset('images/car-hero.png');
-            $file->preview   = $exists ? $file->getUrl('preview') : asset('images/car-hero.png');
+            $file->url = $file->getUrl();
+            $file->thumbnail = $file->getUrl('thumb');
+            $file->preview = $file->getUrl('preview');
         }
 
         return $file;
@@ -129,10 +127,9 @@ class Garage extends Model implements HasMedia
     {
         $files = $this->getMedia('gallery');
         $files->each(function ($item) {
-            $exists = file_exists($item->getPath());
-            $item->url       = $exists ? $item->getUrl() : asset('images/car-hero.png');
-            $item->thumbnail = $exists ? $item->getUrl('thumb') : asset('images/car-hero.png');
-            $item->preview   = $exists ? $item->getUrl('preview') : asset('images/car-hero.png');
+            $item->url = $item->getUrl();
+            $item->thumbnail = $item->getUrl('thumb');
+            $item->preview = $item->getUrl('preview');
         });
 
         return $files;

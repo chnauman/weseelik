@@ -33,7 +33,7 @@ class GaragesApiController extends Controller
             $data = $request->all();
             $user_id = auth()->id();
             $user = User::find($user_id);
-            if($user->type == 'business'){
+            if ($user->type == 'business') {
                 $data['user_id'] = auth()->id();
             } else {
                 $data['surveyor_id'] = auth()->id();
@@ -103,7 +103,7 @@ class GaragesApiController extends Controller
                 $garage->addMedia(storage_path('tmp/uploads/' . basename($file)))->toMediaCollection('gallery');
             }
             */
-            if($user->type == 'business'){
+            if ($user->type == 'business') {
                 $user->update(['is_profile_complete' => true]);
             }
 
@@ -118,7 +118,7 @@ class GaragesApiController extends Controller
                 'error' => $th->getMessage()
             ], Response::HTTP_INTERNAL_SERVER_ERROR);
         }
-        
+
     }
 
     public function show(Garage $garage)
@@ -129,13 +129,13 @@ class GaragesApiController extends Controller
 
         if ($user) {
             $garage->load(['user', 'country', 'tags', 'languages', 'specializations', 'services', 'categories', 'work_shifts', 'contacts']);
-            
+
             // Check if the garage is in user's favorites
             $isFavorite = $garage->favorites()
                 ->where('user_id', $user->id)
                 ->whereNull('deleted_at')
                 ->exists();
-            
+
             $garage->is_favorite = $isFavorite;
         } else {
             $garage->load(['user', 'country', 'tags', 'languages', 'specializations', 'services', 'categories', 'work_shifts', 'contacts']);
@@ -184,7 +184,7 @@ class GaragesApiController extends Controller
         }
 
         if ($request->input('logo', false)) {
-            if (! $garage->logo || $request->input('logo') !== $garage->logo->file_name) {
+            if (!$garage->logo || $request->input('logo') !== $garage->logo->file_name) {
                 if ($garage->logo) {
                     $garage->logo->delete();
                 }
@@ -195,7 +195,7 @@ class GaragesApiController extends Controller
         }
 
         if ($request->input('storefront_image', false)) {
-            if (! $garage->storefront_image || $request->input('storefront_image') !== $garage->storefront_image->file_name) {
+            if (!$garage->storefront_image || $request->input('storefront_image') !== $garage->storefront_image->file_name) {
                 if ($garage->storefront_image) {
                     $garage->storefront_image->delete();
                 }
@@ -207,14 +207,14 @@ class GaragesApiController extends Controller
 
         if (count($garage->gallery) > 0) {
             foreach ($garage->gallery as $media) {
-                if (! in_array($media->file_name, $request->input('gallery', []))) {
+                if (!in_array($media->file_name, $request->input('gallery', []))) {
                     $media->delete();
                 }
             }
         }
         $media = $garage->gallery->pluck('file_name')->toArray();
         foreach ($request->input('gallery', []) as $file) {
-            if (count($media) === 0 || ! in_array($file, $media)) {
+            if (count($media) === 0 || !in_array($file, $media)) {
                 $garage->addMedia(storage_path('tmp/uploads/' . basename($file)))->toMediaCollection('gallery');
             }
         }
@@ -257,7 +257,7 @@ class GaragesApiController extends Controller
             ->limit($limit)
             ->with(['user', 'country', 'tags', 'languages', 'specializations', 'services', 'categories', 'work_shifts', 'contacts']);
 
-            // Get user if authenticated
+        // Get user if authenticated
         $user = $request->user();
 
         if ($user) {
@@ -265,14 +265,14 @@ class GaragesApiController extends Controller
                 'garages.*',
                 DB::raw('CASE WHEN user_favorites.id IS NOT NULL THEN 1 ELSE 0 END as is_favorite')
             ])
-            ->leftJoin('user_favorites', function($join) use ($user) {
-                $join->on('garages.id', '=', 'user_favorites.garage_id')
-                     ->where('user_favorites.user_id', '=', $user->id)
-                     ->where('user_favorites.deleted_at', null);
-            });
+                ->leftJoin('user_favorites', function ($join) use ($user) {
+                    $join->on('garages.id', '=', 'user_favorites.garage_id')
+                        ->where('user_favorites.user_id', '=', $user->id)
+                        ->where('user_favorites.deleted_at', null);
+                });
 
             // Exclude blocked garages
-            $query->whereNotExists(function($subquery) use ($user) {
+            $query->whereNotExists(function ($subquery) use ($user) {
                 $subquery->select(DB::raw(1))
                     ->from('user_blocks')
                     ->whereRaw('user_blocks.garage_id = garages.id')
@@ -314,16 +314,16 @@ class GaragesApiController extends Controller
 
         // Base query with distance calculation
         $query = Garage::select([
-                'garages.id',
-                'garages.title',
-                'garages.description',
-                'garages.contact_no',
-                'garages.latitude',
-                'garages.longitude',
-                'garages.no_of_visits',
-                'garages.no_of_likes',
-                'garages.user_id',
-                DB::raw("(
+            'garages.id',
+            'garages.title',
+            'garages.description',
+            'garages.contact_no',
+            'garages.latitude',
+            'garages.longitude',
+            'garages.no_of_visits',
+            'garages.no_of_likes',
+            'garages.user_id',
+            DB::raw("(
                     6371 * acos(
                         cos(radians($latitude)) *
                         cos(radians(latitude)) *
@@ -332,7 +332,7 @@ class GaragesApiController extends Controller
                         sin(radians(latitude))
                     )
                 ) AS distance")
-            ]);
+        ]);
 
         // If user is authenticated, add favorite and block information
         if ($user) {
@@ -340,14 +340,14 @@ class GaragesApiController extends Controller
             $query->addSelect([
                 DB::raw('CASE WHEN user_favorites.id IS NOT NULL THEN 1 ELSE 0 END as is_favorite')
             ])
-            ->leftJoin('user_favorites', function($join) use ($user) {
-                $join->on('garages.id', '=', 'user_favorites.garage_id')
-                     ->where('user_favorites.user_id', '=', $user->id)
-                     ->where('user_favorites.deleted_at', null);
-            });
+                ->leftJoin('user_favorites', function ($join) use ($user) {
+                    $join->on('garages.id', '=', 'user_favorites.garage_id')
+                        ->where('user_favorites.user_id', '=', $user->id)
+                        ->where('user_favorites.deleted_at', null);
+                });
 
             // Exclude blocked garages
-            $query->whereNotExists(function($subquery) use ($user) {
+            $query->whereNotExists(function ($subquery) use ($user) {
                 $subquery->select(DB::raw(1))
                     ->from('user_blocks')
                     ->whereRaw('user_blocks.garage_id = garages.id')
@@ -411,22 +411,22 @@ class GaragesApiController extends Controller
 
         // Get garages with favorite information, excluding blocked garages
         $garages = Garage::select([
-                'garages.id',
-                'garages.title',
-                'garages.description',
-                'garages.contact_no',
-                'garages.latitude',
-                'garages.longitude',
-                'garages.no_of_visits',
-                'garages.no_of_likes',
-                'garages.user_id',
-                DB::raw('CASE WHEN user_favorites.id IS NOT NULL THEN 1 ELSE 0 END as is_favorite'),
-                DB::raw('user_favorites.id as favorite_id'),
-                DB::raw('user_favorites.note as favorite_note')
-            ])
-            ->leftJoin('user_favorites', function($join) use ($user) {
+            'garages.id',
+            'garages.title',
+            'garages.description',
+            'garages.contact_no',
+            'garages.latitude',
+            'garages.longitude',
+            'garages.no_of_visits',
+            'garages.no_of_likes',
+            'garages.user_id',
+            DB::raw('CASE WHEN user_favorites.id IS NOT NULL THEN 1 ELSE 0 END as is_favorite'),
+            DB::raw('user_favorites.id as favorite_id'),
+            DB::raw('user_favorites.note as favorite_note')
+        ])
+            ->leftJoin('user_favorites', function ($join) use ($user) {
                 $join->on('garages.id', '=', 'user_favorites.garage_id')
-                     ->where('user_favorites.user_id', '=', $user->id);
+                    ->where('user_favorites.user_id', '=', $user->id);
             })
             // Exclude blocked garages using whereNotIn
             ->whereNotIn('garages.id', $blockedGarageIds)
@@ -448,7 +448,7 @@ class GaragesApiController extends Controller
                     'longitude' => $garage->longitude,
                     'no_of_visits' => $garage->no_of_visits,
                     'no_of_likes' => $garage->no_of_likes,
-                    'is_favorite' => (bool)$garage->is_favorite,
+                    'is_favorite' => (bool) $garage->is_favorite,
                     'favorite_id' => $garage->is_favorite ? $garage->favorite_id : null,
                     'favorite_note' => $garage->is_favorite ? $garage->favorite_note : null,
                     'logo' => $garage->logo,
@@ -480,7 +480,7 @@ class GaragesApiController extends Controller
                         ->orWhere('service_description', 'like', "%{$query}%")
                         ->orWhereHas('tags', function ($q) use ($query) {
                             $q->where('title', 'like', "%{$query}%")
-                              ->orWhere('english_title', 'like', "%{$query}%");
+                                ->orWhere('english_title', 'like', "%{$query}%");
                         })
                         ->orWhereHas('services', function ($q) use ($query) {
                             $q->where('title', 'like', "%{$query}%");
@@ -498,7 +498,7 @@ class GaragesApiController extends Controller
                 });
             })
             ->with(['user', 'country', 'tags', 'languages', 'specializations', 'services', 'categories', 'work_shifts', 'contacts']);
-        
+
         $user = $request->user();
 
         if ($user) {
@@ -506,14 +506,14 @@ class GaragesApiController extends Controller
                 'garages.*',
                 DB::raw('CASE WHEN user_favorites.id IS NOT NULL THEN 1 ELSE 0 END as is_favorite')
             ])
-            ->leftJoin('user_favorites', function($join) use ($user) {
-                $join->on('garages.id', '=', 'user_favorites.garage_id')
-                     ->where('user_favorites.user_id', '=', $user->id)
-                     ->where('user_favorites.deleted_at', null);
-            });
+                ->leftJoin('user_favorites', function ($join) use ($user) {
+                    $join->on('garages.id', '=', 'user_favorites.garage_id')
+                        ->where('user_favorites.user_id', '=', $user->id)
+                        ->where('user_favorites.deleted_at', null);
+                });
 
             // Exclude blocked garages
-            $query->whereNotExists(function($subquery) use ($user) {
+            $query->whereNotExists(function ($subquery) use ($user) {
                 $subquery->select(DB::raw(1))
                     ->from('user_blocks')
                     ->whereRaw('user_blocks.garage_id = garages.id')
@@ -624,7 +624,7 @@ class GaragesApiController extends Controller
 
         try {
             $garage->update($request->all());
-            
+
             // Update relationships
             if ($request->has('tags')) {
                 $garage->tags()->sync($request->input('tags', []));
@@ -720,28 +720,18 @@ class GaragesApiController extends Controller
             'longitude',
             'status'
         ])
-        ->whereRaw('LOWER(status) = ?', ['approved'])
-        ->get()
-        ->map(function ($garage) {
-            $logo = $garage->getMedia('logo')->first();
-            $storefront = $garage->getMedia('storefront_image')->first();
-            
-            $image = null;
-            if ($logo && file_exists($logo->getPath())) {
-                $image = $logo->getUrl();
-            } elseif ($storefront && file_exists($storefront->getPath())) {
-                $image = $storefront->getUrl();
-            }
-
-            return [
-                'id' => $garage->id,
-                'title' => $garage->title,
-                'description' => $garage->description,
-                'latitude' => $garage->latitude,
-                'longitude' => $garage->longitude,
-                'image' => $image ?: asset('images/wiseelik-logo-mascot.png')
-            ];
-        });
+            ->whereRaw('LOWER(status) = ?', ['approved'])
+            ->get()
+            ->map(function ($garage) {
+                return [
+                    'id' => $garage->id,
+                    'title' => $garage->title,
+                    'description' => $garage->description,
+                    'latitude' => $garage->latitude,
+                    'longitude' => $garage->longitude,
+                    'image' => $garage->getFirstMediaUrl('logo') ?: $garage->getFirstMediaUrl('storefront_image')
+                ];
+            });
 
         return response()->json([
             'success' => true,

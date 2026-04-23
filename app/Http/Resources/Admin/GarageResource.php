@@ -12,47 +12,44 @@ class GarageResource extends JsonResource
 
         // Ensure the resource is an individual model, not a collection
         if ($this->resource instanceof \App\Models\Garage) {
-        // Get all logos
-        $logos = $this->getMedia('logo')->map(function ($media) {
-            $exists = file_exists($media->getPath());
-            return [
-                'id' => $media->id,
-                'url' => $exists ? $media->getUrl() : asset('images/wiseelik-logo-mascot.png'),
-                'thumbnail' => $exists ? $media->getUrl('thumb') : asset('images/wiseelik-logo-mascot.png'),
-                'preview' => $exists ? $media->getUrl('preview') : asset('images/wiseelik-logo-mascot.png'),
-            ];
-        });
+            // Get all logos
+            $logos = $this->getMedia('logo')->map(function ($media) {
+                return [
+                    'id' => $media->id,
+                    'url' => $media->getUrl(),
+                    'thumbnail' => $media->getUrl('thumb'),
+                    'preview' => $media->getUrl('preview'),
+                ];
+            });
 
-        // Get all storefront images
-        $storefrontImages = $this->getMedia('storefront_image')->map(function ($media) {
-            $exists = file_exists($media->getPath());
-            return [
-                'id' => $media->id,
-                'url' => $exists ? $media->getUrl() : asset('images/car-hero.png'),
-                'thumbnail' => $exists ? $media->getUrl('thumb') : asset('images/car-hero.png'),
-                'preview' => $exists ? $media->getUrl('preview') : asset('images/car-hero.png'),
-            ];
-        });
+            // Get all storefront images
+            $storefrontImages = $this->getMedia('storefront_image')->map(function ($media) {
+                return [
+                    'id' => $media->id,
+                    'url' => $media->getUrl(),
+                    'thumbnail' => $media->getUrl('thumb'),
+                    'preview' => $media->getUrl('preview'),
+                ];
+            });
 
-        // Get all gallery images
-        $gallery = $this->getMedia('gallery')->map(function ($media) {
-            $exists = file_exists($media->getPath());
-            return [
-                'id' => $media->id,
-                'url' => $exists ? $media->getUrl() : asset('images/car-hero.png'),
-                'thumbnail' => $exists ? $media->getUrl('thumb') : asset('images/car-hero.png'),
-                'preview' => $exists ? $media->getUrl('preview') : asset('images/car-hero.png'),
-            ];
-        });
+            // Get all gallery images
+            $gallery = $this->getMedia('gallery')->map(function ($media) {
+                return [
+                    'id' => $media->id,
+                    'url' => $media->getUrl(),
+                    'thumbnail' => $media->getUrl('thumb'),
+                    'preview' => $media->getUrl('preview'),
+                ];
+            });
 
-        // Replace the single media items with collections
-        $data['logos'] = $logos;
-        $data['storefront_images'] = $storefrontImages;
-        $data['gallery'] = $gallery;
+            // Replace the single media items with collections
+            $data['logos'] = $logos;
+            $data['storefront_images'] = $storefrontImages;
+            $data['gallery'] = $gallery;
 
-        // Remove the old single media attributes
-        unset($data['logo']);
-        unset($data['storefront_image']);
+            // Remove the old single media attributes
+            unset($data['logo']);
+            unset($data['storefront_image']);
         }
 
         return $data;
