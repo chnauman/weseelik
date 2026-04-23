@@ -729,7 +729,8 @@ class GaragesApiController extends Controller
                     'description' => $garage->description,
                     'latitude' => $garage->latitude,
                     'longitude' => $garage->longitude,
-                    'image' => $garage->getFirstMediaUrl('logo') ?: $garage->getFirstMediaUrl('storefront_image')
+                    // 'image' => $garage->getFirstMediaUrl('logo') ?: $garage->getFirstMediaUrl('storefront_image')
+                    'image' => asset('images/wiseelik-logo-mascot.png')
                 ];
             });
 
