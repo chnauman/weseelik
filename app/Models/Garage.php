@@ -103,9 +103,12 @@ class Garage extends Model implements HasMedia
     {
         $file = $this->getMedia('logo')->last();
         if ($file) {
-            $file->url = $file->getUrl();
-            $file->thumbnail = $file->getUrl('thumb');
-            $file->preview = $file->getUrl('preview');
+            // $file->url = $file->getUrl();
+            // $file->thumbnail = $file->getUrl('thumb');
+            // $file->preview = $file->getUrl('preview');
+            $file->url = 'https://wiseelik.com/images/logo.png';
+            $file->thumbnail = 'https://wiseelik.com/images/logo.png';
+            $file->preview = 'https://wiseelik.com/images/logo.png';
         }
 
         return $file;
@@ -115,9 +118,12 @@ class Garage extends Model implements HasMedia
     {
         $file = $this->getMedia('storefront_image')->last();
         if ($file) {
-            $file->url = $file->getUrl();
-            $file->thumbnail = $file->getUrl('thumb');
-            $file->preview = $file->getUrl('preview');
+            // $file->url = $file->getUrl();
+            // $file->thumbnail = $file->getUrl('thumb');
+            // $file->preview = $file->getUrl('preview');
+            $file->url = 'https://wiseelik.com/images/logo.png';
+            $file->thumbnail = 'https://wiseelik.com/images/logo.png';
+            $file->preview = 'https://wiseelik.com/images/logo.png';
         }
 
         return $file;
@@ -127,9 +133,12 @@ class Garage extends Model implements HasMedia
     {
         $files = $this->getMedia('gallery');
         $files->each(function ($item) {
-            $item->url = $item->getUrl();
-            $item->thumbnail = $item->getUrl('thumb');
-            $item->preview = $item->getUrl('preview');
+            // $item->url = $item->getUrl();
+            // $item->thumbnail = $item->getUrl('thumb');
+            // $item->preview = $item->getUrl('preview');
+            $item->url = 'https://wiseelik.com/images/logo.png';
+            $item->thumbnail = 'https://wiseelik.com/images/logo.png';
+            $item->preview = 'https://wiseelik.com/images/logo.png';
         });
 
         return $files;

@@ -16,9 +16,12 @@ class GarageResource extends JsonResource
             $logos = $this->getMedia('logo')->map(function ($media) {
                 return [
                     'id' => $media->id,
-                    'url' => $media->getUrl(),
-                    'thumbnail' => $media->getUrl('thumb'),
-                    'preview' => $media->getUrl('preview'),
+                    // 'url' => $media->getUrl(),
+                    // 'thumbnail' => $media->getUrl('thumb'),
+                    // 'preview' => $media->getUrl('preview'),
+                    'url' => 'https://wiseelik.com/images/logo.png',
+                    'thumbnail' => 'https://wiseelik.com/images/logo.png',
+                    'preview' => 'https://wiseelik.com/images/logo.png',
                 ];
             });
 
@@ -26,9 +29,12 @@ class GarageResource extends JsonResource
             $storefrontImages = $this->getMedia('storefront_image')->map(function ($media) {
                 return [
                     'id' => $media->id,
-                    'url' => $media->getUrl(),
-                    'thumbnail' => $media->getUrl('thumb'),
-                    'preview' => $media->getUrl('preview'),
+                    // 'url' => $media->getUrl(),
+                    // 'thumbnail' => $media->getUrl('thumb'),
+                    // 'preview' => $media->getUrl('preview'),
+                    'url' => 'https://wiseelik.com/images/logo.png',
+                    'thumbnail' => 'https://wiseelik.com/images/logo.png',
+                    'preview' => 'https://wiseelik.com/images/logo.png',
                 ];
             });
 
@@ -36,9 +42,12 @@ class GarageResource extends JsonResource
             $gallery = $this->getMedia('gallery')->map(function ($media) {
                 return [
                     'id' => $media->id,
-                    'url' => $media->getUrl(),
-                    'thumbnail' => $media->getUrl('thumb'),
-                    'preview' => $media->getUrl('preview'),
+                    // 'url' => $media->getUrl(),
+                    // 'thumbnail' => $media->getUrl('thumb'),
+                    // 'preview' => $media->getUrl('preview'),
+                    'url' => 'https://wiseelik.com/images/logo.png',
+                    'thumbnail' => 'https://wiseelik.com/images/logo.png',
+                    'preview' => 'https://wiseelik.com/images/logo.png',
                 ];
             });
 
