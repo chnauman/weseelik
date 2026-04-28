@@ -13,6 +13,7 @@ use Spatie\MediaLibrary\MediaCollections\Models\Media;
 class Garage extends Model implements HasMedia
 {
     use SoftDeletes, InteractsWithMedia, HasFactory;
+    protected const FALLBACK_IMAGE_COUNT = 10;
 
     public $table = 'garages';
 
@@ -106,9 +107,12 @@ class Garage extends Model implements HasMedia
             // $file->url = $file->getUrl();
             // $file->thumbnail = $file->getUrl('thumb');
             // $file->preview = $file->getUrl('preview');
-            $file->url = 'https://wiseelik.com/images/logo.png';
-            $file->thumbnail = 'https://wiseelik.com/images/logo.png';
-            $file->preview = 'https://wiseelik.com/images/logo.png';
+            // $file->url = 'https://wiseelik.com/images/logo.png';
+            // $file->thumbnail = 'https://wiseelik.com/images/logo.png';
+            // $file->preview = 'https://wiseelik.com/images/logo.png';
+            $file->url = $this->resolveMediaUrlOrFallback($file);
+            $file->thumbnail = $file->url;
+            $file->preview = $file->url;
         }
 
         return $file;
@@ -121,9 +125,12 @@ class Garage extends Model implements HasMedia
             // $file->url = $file->getUrl();
             // $file->thumbnail = $file->getUrl('thumb');
             // $file->preview = $file->getUrl('preview');
-            $file->url = 'https://wiseelik.com/images/logo.png';
-            $file->thumbnail = 'https://wiseelik.com/images/logo.png';
-            $file->preview = 'https://wiseelik.com/images/logo.png';
+            // $file->url = 'https://wiseelik.com/images/logo.png';
+            // $file->thumbnail = 'https://wiseelik.com/images/logo.png';
+            // $file->preview = 'https://wiseelik.com/images/logo.png';
+            $file->url = $this->resolveMediaUrlOrFallback($file);
+            $file->thumbnail = $file->url;
+            $file->preview = $file->url;
         }
 
         return $file;
@@ -136,12 +143,35 @@ class Garage extends Model implements HasMedia
             // $item->url = $item->getUrl();
             // $item->thumbnail = $item->getUrl('thumb');
             // $item->preview = $item->getUrl('preview');
-            $item->url = 'https://wiseelik.com/images/logo.png';
-            $item->thumbnail = 'https://wiseelik.com/images/logo.png';
-            $item->preview = 'https://wiseelik.com/images/logo.png';
+            // $item->url = 'https://wiseelik.com/images/logo.png';
+            // $item->thumbnail = 'https://wiseelik.com/images/logo.png';
+            // $item->preview = 'https://wiseelik.com/images/logo.png';
+            $item->url = $this->resolveMediaUrlOrFallback($item);
+            $item->thumbnail = $item->url;
+            $item->preview = $item->url;
         });
 
         return $files;
+    }
+
+    protected function resolveMediaUrlOrFallback(Media $media): string
+    {
+        $path = method_exists($media, 'getPath') ? $media->getPath() : null;
+        $existsOnDisk = $path ? @file_exists($path) : true;
+
+        if ($existsOnDisk) {
+            return $media->getUrl();
+        }
+
+        return $this->fallbackImageUrl();
+    }
+
+    protected function fallbackImageUrl(): string
+    {
+        $id = (int) ($this->id ?? 0);
+        $index = ($id > 0) ? (($id % static::FALLBACK_IMAGE_COUNT) + 1) : 1;
+
+        return "https://wiseelik.com/images/fallback-{$index}.png";
     }
 
     public function tags()
