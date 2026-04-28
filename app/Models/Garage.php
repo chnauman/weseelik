@@ -146,14 +146,20 @@ class Garage extends Model implements HasMedia
     public function getGalleryAttribute()
     {
         $files = $this->getMedia('gallery');
-        $files->each(function ($item, $index) {
+        $usedUrls = [];
+        $files->each(function ($item, $index) use (&$usedUrls) {
             // $item->url = $item->getUrl();
             // $item->thumbnail = $item->getUrl('thumb');
             // $item->preview = $item->getUrl('preview');
             // $item->url = 'https://wiseelik.com/images/logo.png';
             // $item->thumbnail = 'https://wiseelik.com/images/logo.png';
             // $item->preview = 'https://wiseelik.com/images/logo.png';
-            $item->url = $this->resolveMediaUrlOrFallback($item, (int) $index + 3);
+            $url = $this->resolveMediaUrlOrFallback($item, (int) $index + 3);
+            if (in_array($url, $usedUrls, true)) {
+                $url = $this->fallbackImageUrl((int) $index + 4);
+            }
+            $usedUrls[] = $url;
+            $item->url = $url;
             $item->thumbnail = $item->url;
             $item->preview = $item->url;
         });

@@ -74,12 +74,18 @@ class GarageResource extends JsonResource
             }
 
             // Get all gallery images
-            $gallery = $this->getMedia('gallery')->map(function ($media, $index) use ($fallbackGalleryBaseIndex) {
+            $usedGalleryUrls = [];
+            $gallery = $this->getMedia('gallery')->map(function ($media, $index) use ($fallbackGalleryBaseIndex, &$usedGalleryUrls) {
                 $galleryFallbackIndex = (($fallbackGalleryBaseIndex + (int) $index - 1) % 10) + 1;
                 $galleryFallbackUrl = "https://wiseelik.com/images/fallback-{$galleryFallbackIndex}.png";
                 $path = method_exists($media, 'getPath') ? $media->getPath() : null;
                 $existsOnDisk = $path ? @file_exists($path) : true;
                 $resolvedUrl = $existsOnDisk ? $media->getUrl() : $galleryFallbackUrl;
+                if (in_array($resolvedUrl, $usedGalleryUrls, true)) {
+                    $galleryFallbackIndex = (($fallbackGalleryBaseIndex + (int) $index) % 10) + 1;
+                    $resolvedUrl = "https://wiseelik.com/images/fallback-{$galleryFallbackIndex}.png";
+                }
+                $usedGalleryUrls[] = $resolvedUrl;
                 return [
                     'id' => $media->id,
                     // 'url' => $media->getUrl(),
