@@ -6,6 +6,7 @@ use DateTimeInterface;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use stdClass;
 use Spatie\MediaLibrary\HasMedia;
 use Spatie\MediaLibrary\InteractsWithMedia;
 use Spatie\MediaLibrary\MediaCollections\Models\Media;
@@ -103,6 +104,9 @@ class Garage extends Model implements HasMedia
     public function getLogoAttribute()
     {
         $file = $this->getMedia('logo')->last();
+        if (!$file) {
+            return $this->buildFallbackMediaObject(1);
+        }
         if ($file) {
             // $file->url = $file->getUrl();
             // $file->thumbnail = $file->getUrl('thumb');
@@ -121,6 +125,9 @@ class Garage extends Model implements HasMedia
     public function getStorefrontImageAttribute()
     {
         $file = $this->getMedia('storefront_image')->last();
+        if (!$file) {
+            return $this->buildFallbackMediaObject(2);
+        }
         if ($file) {
             // $file->url = $file->getUrl();
             // $file->thumbnail = $file->getUrl('thumb');
@@ -139,22 +146,26 @@ class Garage extends Model implements HasMedia
     public function getGalleryAttribute()
     {
         $files = $this->getMedia('gallery');
-        $files->each(function ($item) {
+        $files->each(function ($item, $index) {
             // $item->url = $item->getUrl();
             // $item->thumbnail = $item->getUrl('thumb');
             // $item->preview = $item->getUrl('preview');
             // $item->url = 'https://wiseelik.com/images/logo.png';
             // $item->thumbnail = 'https://wiseelik.com/images/logo.png';
             // $item->preview = 'https://wiseelik.com/images/logo.png';
-            $item->url = $this->resolveMediaUrlOrFallback($item);
+            $item->url = $this->resolveMediaUrlOrFallback($item, (int) $index + 3);
             $item->thumbnail = $item->url;
             $item->preview = $item->url;
         });
 
+        if ($files->isEmpty()) {
+            $files->push($this->buildFallbackMediaObject(3));
+        }
+
         return $files;
     }
 
-    protected function resolveMediaUrlOrFallback(Media $media): string
+    protected function resolveMediaUrlOrFallback(Media $media, int $seed = 1): string
     {
         $path = method_exists($media, 'getPath') ? $media->getPath() : null;
         $existsOnDisk = $path ? @file_exists($path) : true;
@@ -163,20 +174,34 @@ class Garage extends Model implements HasMedia
             return $media->getUrl();
         }
 
-        return $this->fallbackImageUrl();
+        return $this->fallbackImageUrl($seed);
     }
 
-    protected function fallbackImageUrl(): string
+    protected function fallbackImageUrl(int $seed = 1): string
     {
         $override = (int) ($this->fallback_index_override ?? 0);
         if ($override >= 1 && $override <= static::FALLBACK_IMAGE_COUNT) {
-            return "https://wiseelik.com/images/fallback-{$override}.png";
+            $index = (($override + $seed - 2) % static::FALLBACK_IMAGE_COUNT) + 1;
+            return "https://wiseelik.com/images/fallback-{$index}.png";
         }
 
         $id = (int) ($this->id ?? 0);
-        $index = ($id > 0) ? (($id % static::FALLBACK_IMAGE_COUNT) + 1) : 1;
+        $index = ($id > 0)
+            ? ((($id + $seed - 1) % static::FALLBACK_IMAGE_COUNT) + 1)
+            : ((($seed - 1) % static::FALLBACK_IMAGE_COUNT) + 1);
 
         return "https://wiseelik.com/images/fallback-{$index}.png";
+    }
+
+    protected function buildFallbackMediaObject(int $seed = 1): stdClass
+    {
+        $url = $this->fallbackImageUrl($seed);
+        $file = new stdClass();
+        $file->url = $url;
+        $file->thumbnail = $url;
+        $file->preview = $url;
+
+        return $file;
     }
 
     public function tags()
