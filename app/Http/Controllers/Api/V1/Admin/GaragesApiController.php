@@ -251,7 +251,11 @@ class GaragesApiController extends Controller
         // Get the limit from request or use default value of 10
         // $limit = $request->input('limit', 10);
         $limit = min((int) $request->input('limit', 10), 10);
-        $offset = $request->input('offset', 0);
+        // $offset = $request->input('offset', 0);
+        $offset = max((int) $request->input('offset', 0), 0);
+        $maxResults = 10;
+        $remaining = max($maxResults - $offset, 0);
+        $limit = min($limit, $remaining);
 
         // Query the top visited garages
         $query = Garage::orderBy('no_of_visits', 'desc')
@@ -310,7 +314,11 @@ class GaragesApiController extends Controller
         $longitude = $request->input('longitude');
         // $limit = $request->input('limit', 10);
         $limit = min((int) $request->input('limit', 10), 10);
-        $offset = $request->input('offset', 0);
+        // $offset = $request->input('offset', 0);
+        $offset = max((int) $request->input('offset', 0), 0);
+        $maxResults = 10;
+        $remaining = max($maxResults - $offset, 0);
+        $limit = min($limit, $remaining);
         $radius = $request->input('radius', 10); // Default radius is 10 km
 
         // Get user if authenticated
@@ -475,7 +483,11 @@ class GaragesApiController extends Controller
         $tagIds = $request->input('tags', []);
         $serviceIds = $request->input('services', []);
         $limit = min((int) $request->input('limit', 10), 10);
+        // $offset = max((int) $request->input('offset', 0), 0);
         $offset = max((int) $request->input('offset', 0), 0);
+        $maxResults = 10;
+        $remaining = max($maxResults - $offset, 0);
+        $limit = min($limit, $remaining);
 
         $query = Garage::query()
             ->when($query, function ($q) use ($query) {
