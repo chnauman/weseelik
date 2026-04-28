@@ -288,6 +288,9 @@ class GaragesApiController extends Controller
         }
 
         $topGarages = $query->get();
+        $topGarages->values()->each(function ($garage, $index) use ($offset) {
+            $garage->fallback_index_override = (($offset + $index) % 10) + 1;
+        });
         return new GarageResource($topGarages);
     }
 
@@ -373,6 +376,9 @@ class GaragesApiController extends Controller
             ->offset($offset)
             ->limit($limit)
             ->get();
+        $garages->values()->each(function ($garage, $index) use ($offset) {
+            $garage->fallback_index_override = (($offset + $index) % 10) + 1;
+        });
 
         // Return a custom JSON response
         return response()->json([
@@ -542,6 +548,9 @@ class GaragesApiController extends Controller
 
         // $garages = $query->get();
         $garages = $query->offset($offset)->limit($limit)->get();
+        $garages->values()->each(function ($garage, $index) use ($offset) {
+            $garage->fallback_index_override = (($offset + $index) % 10) + 1;
+        });
         return new GarageResource($garages);
     }
 
@@ -742,8 +751,9 @@ class GaragesApiController extends Controller
             ->whereRaw('LOWER(status) = ?', ['approved'])
             ->limit(10)
             ->get()
-            ->map(function ($garage) {
-                $fallbackIndex = ((int) $garage->id % 10) + 1;
+            ->values()
+            ->map(function ($garage, $index) {
+                $fallbackIndex = ($index % 10) + 1;
                 $fallbackUrl = "https://wiseelik.com/images/fallback-{$fallbackIndex}.png";
                 $imageUrl = $garage->getFirstMediaUrl('logo') ?: $garage->getFirstMediaUrl('storefront_image');
                 if (empty($imageUrl)) {

@@ -168,6 +168,11 @@ class Garage extends Model implements HasMedia
 
     protected function fallbackImageUrl(): string
     {
+        $override = (int) ($this->fallback_index_override ?? 0);
+        if ($override >= 1 && $override <= static::FALLBACK_IMAGE_COUNT) {
+            return "https://wiseelik.com/images/fallback-{$override}.png";
+        }
+
         $id = (int) ($this->id ?? 0);
         $index = ($id > 0) ? (($id % static::FALLBACK_IMAGE_COUNT) + 1) : 1;
 
