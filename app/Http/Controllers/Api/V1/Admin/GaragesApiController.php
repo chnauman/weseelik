@@ -243,19 +243,13 @@ class GaragesApiController extends Controller
     {
         // Validate limit parameter
         $request->validate([
-            // 'limit' => 'nullable|integer|min:1|max:100',
-            'limit' => 'nullable|integer|min:1|max:10',
+            'limit' => 'nullable|integer|min:1|max:100',
             'offset' => 'nullable|integer',
         ]);
 
         // Get the limit from request or use default value of 10
-        // $limit = $request->input('limit', 10);
-        $limit = min((int) $request->input('limit', 10), 10);
-        // $offset = $request->input('offset', 0);
-        $offset = max((int) $request->input('offset', 0), 0);
-        $maxResults = 10;
-        $remaining = max($maxResults - $offset, 0);
-        $limit = min($limit, $remaining);
+        $limit = $request->input('limit', 10);
+        $offset = $request->input('offset', 0);
 
         // Query the top visited garages
         $query = Garage::orderBy('no_of_visits', 'desc')
@@ -288,9 +282,6 @@ class GaragesApiController extends Controller
         }
 
         $topGarages = $query->get();
-        $topGarages->values()->each(function ($garage, $index) use ($offset) {
-            $garage->fallback_index_override = (($offset + $index) % 10) + 1;
-        });
         return new GarageResource($topGarages);
     }
 
@@ -306,8 +297,7 @@ class GaragesApiController extends Controller
         $request->validate([
             'latitude' => 'required|numeric',
             'longitude' => 'required|numeric',
-            // 'limit' => 'nullable|integer|min:1|max:100',
-            'limit' => 'nullable|integer|min:1|max:10',
+            'limit' => 'nullable|integer|min:1|max:100',
             'offset' => 'nullable|integer',
             'radius' => 'nullable|numeric|min:0.1|max:500', // radius in kilometers
         ]);
@@ -315,13 +305,8 @@ class GaragesApiController extends Controller
         // Get parameters
         $latitude = $request->input('latitude');
         $longitude = $request->input('longitude');
-        // $limit = $request->input('limit', 10);
-        $limit = min((int) $request->input('limit', 10), 10);
-        // $offset = $request->input('offset', 0);
-        $offset = max((int) $request->input('offset', 0), 0);
-        $maxResults = 10;
-        $remaining = max($maxResults - $offset, 0);
-        $limit = min($limit, $remaining);
+        $limit = $request->input('limit', 10);
+        $offset = $request->input('offset', 0);
         $radius = $request->input('radius', 10); // Default radius is 10 km
 
         // Get user if authenticated
@@ -376,9 +361,6 @@ class GaragesApiController extends Controller
             ->offset($offset)
             ->limit($limit)
             ->get();
-        $garages->values()->each(function ($garage, $index) use ($offset) {
-            $garage->fallback_index_override = (($offset + $index) % 10) + 1;
-        });
 
         // Return a custom JSON response
         return response()->json([
@@ -488,12 +470,6 @@ class GaragesApiController extends Controller
         $query = $request->input('query', '');
         $tagIds = $request->input('tags', []);
         $serviceIds = $request->input('services', []);
-        $limit = min((int) $request->input('limit', 10), 10);
-        // $offset = max((int) $request->input('offset', 0), 0);
-        $offset = max((int) $request->input('offset', 0), 0);
-        $maxResults = 10;
-        $remaining = max($maxResults - $offset, 0);
-        $limit = min($limit, $remaining);
 
         $query = Garage::query()
             ->when($query, function ($q) use ($query) {
@@ -546,11 +522,7 @@ class GaragesApiController extends Controller
             });
         }
 
-        // $garages = $query->get();
-        $garages = $query->offset($offset)->limit($limit)->get();
-        $garages->values()->each(function ($garage, $index) use ($offset) {
-            $garage->fallback_index_override = (($offset + $index) % 10) + 1;
-        });
+        $garages = $query->get();
         return new GarageResource($garages);
     }
 
@@ -749,26 +721,16 @@ class GaragesApiController extends Controller
             'status'
         ])
             ->whereRaw('LOWER(status) = ?', ['approved'])
-            ->limit(10)
             ->get()
-            ->values()
-            ->map(function ($garage, $index) {
-                $fallbackIndex = ($index % 10) + 1;
-                $fallbackUrl = "https://wiseelik.com/images/fallback-{$fallbackIndex}.png";
-                $imageUrl = $garage->getFirstMediaUrl('logo') ?: $garage->getFirstMediaUrl('storefront_image');
-                if (empty($imageUrl)) {
-                    $imageUrl = $fallbackUrl;
-                }
-
+            ->map(function ($garage) {
                 return [
                     'id' => $garage->id,
                     'title' => $garage->title,
                     'description' => $garage->description,
                     'latitude' => $garage->latitude,
                     'longitude' => $garage->longitude,
-                    // 'image' => $garage->getFirstMediaUrl('logo') ?: $garage->getFirstMediaUrl('storefront_image'),
+                    'image' => $garage->getFirstMediaUrl('logo') ?: $garage->getFirstMediaUrl('storefront_image'),
                     // 'image' => 'https://wiseelik.com/images/logo.png'
-                    'image' => $imageUrl
                 ];
             });
 
